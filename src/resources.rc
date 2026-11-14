@@ -1,0 +1,5 @@
+#include <windows.h>
+#include "resource.h"
+
+IDR_PINYIN_DICTIONARY RCDATA "..\\data\\pinyin.tsv"
+IDR_WUBI86_DICTIONARY RCDATA "..\\data\\wubi86.tsv"

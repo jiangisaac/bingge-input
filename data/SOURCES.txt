@@ -1,0 +1,26 @@
+TV1TSF 词库来源与转换说明
+
+拼音
+- 项目：rime/rime-pinyin-simp
+- 固定提交：0c6861ef7420ee780270ca6d993d18d4101049d0
+- 源文件：pinyin_simp.dict.yaml
+- 来源：https://github.com/rime/rime-pinyin-simp/tree/0c6861ef7420ee780270ca6d993d18d4101049d0
+- 作者/上游：Gong Chen；Derived from Android Pinyin IME
+- 许可证：Apache License 2.0，见 licenses/rime-pinyin-simp-LICENSE.txt
+
+五笔86
+- 项目：rime/rime-wubi
+- 固定提交：152a0d3f3efe40cae216d1e3b338242446848d07
+- 源文件：wubi86.dict.yaml
+- 来源：https://github.com/rime/rime-wubi/tree/152a0d3f3efe40cae216d1e3b338242446848d07
+- 作者/上游：acevery (Yu Yuwei)、王永民；Gong Chen 的 Rime 转换
+- 许可证：GNU Lesser General Public License 3.0，见 licenses/rime-wubi-LICENSE.txt
+
+本地修改与转换
+- tools/prepare_dictionaries.py 仅做格式转换、编码规范化、去重和权重排序，不手工修改候选语义。
+- 拼音音节之间空白被移除，保留不超过 32 个 ASCII 小写字母的全拼编码。
+- 五笔仅保留不超过四码的 ASCII 小写字母编码。
+- 重复“编码＋候选”保留最大权重；TSV 按编码、权重降序和文本排序。
+- 生成后的 pinyin.tsv、wubi86.tsv 是可直接修改的词库源数据，与本转换脚本共同提供。
+- 转换示例：
+  python tools/prepare_dictionaries.py --pinyin pinyin_simp.dict.yaml --wubi wubi86.dict.yaml --output-dir data

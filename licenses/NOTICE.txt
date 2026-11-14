@@ -1,0 +1,22 @@
+TV1TSF Third-Party Data Notices
+
+This product includes modified data derived from:
+
+1. rime-pinyin-simp / pinyin_simp.dict.yaml
+   Copyright and authors: Gong Chen and Android Pinyin IME contributors.
+   Source: https://github.com/rime/rime-pinyin-simp/tree/0c6861ef7420ee780270ca6d993d18d4101049d0
+   Licensed under Apache License 2.0. See rime-pinyin-simp-LICENSE.txt.
+   Modifications: whitespace removed from Pinyin encodings; ASCII code filtering;
+   duplicate entries merged by maximum weight; entries sorted for lookup.
+
+2. rime-wubi / wubi86.dict.yaml
+   Derived from ibus-table by acevery (Yu Yuwei), based on original work by
+   王永民 / Wang Yongmin. Rime conversion by Gong Chen and contributors.
+   Source: https://github.com/rime/rime-wubi/tree/152a0d3f3efe40cae216d1e3b338242446848d07
+   Licensed under GNU Lesser General Public License 3.0. See rime-wubi-LICENSE.txt.
+   Modifications: entries limited to ASCII Wubi86 codes of at most four letters;
+   duplicate entries merged by maximum weight; entries sorted for lookup.
+
+The corresponding modifiable TSV data and the conversion script are supplied
+with the installation package under data/ and tools/. The TV1TSF application
+does not restrict modification or replacement of these dictionary data.

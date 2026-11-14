@@ -1,0 +1,2 @@
+# Keep embedded dictionary resources consistent across checkouts.
+*.tsv text eol=lf

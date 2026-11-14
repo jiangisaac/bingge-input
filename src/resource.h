@@ -1,0 +1,4 @@
+#pragma once
+
+#define IDR_PINYIN_DICTIONARY 101
+#define IDR_WUBI86_DICTIONARY 102
