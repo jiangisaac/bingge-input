@@ -20,6 +20,51 @@ EXTERN_C const GUID GUID_TV1PunctuationKey =
 
 namespace
 {
+// {13A016DF-560B-46CD-947A-4C3AF1E0E35D}
+const GUID kGuidTipcapImmersiveSupport =
+    {0x13a016df, 0x560b, 0x46cd, {0x94, 0x7a, 0x4c, 0x3a, 0xf1, 0xe0, 0xe3, 0x5d}};
+// {25504FB4-7BAB-4BC1-9C69-CF81890F0EF5}
+const GUID kGuidTipcapSystraySupport =
+    {0x25504fb4, 0x7bab, 0x4bc1, {0x9c, 0x69, 0xcf, 0x81, 0x89, 0x0f, 0x0e, 0xf5}};
+
+const GUID kSupportCategories[] = {
+    GUID_TFCAT_CATEGORY_OF_TIP,
+    GUID_TFCAT_TIP_KEYBOARD,
+    GUID_TFCAT_TIPCAP_SECUREMODE,
+    GUID_TFCAT_TIPCAP_UIELEMENTENABLED,
+    GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT,
+    GUID_TFCAT_TIPCAP_COMLESS,
+    kGuidTipcapImmersiveSupport,
+    kGuidTipcapSystraySupport,
+};
+
+#ifdef TV1TSF_SEARCH_DIAGNOSTICS
+void SearchComDiag(const wchar_t* event, HRESULT hr = S_OK) noexcept
+{
+    wchar_t processPath[MAX_PATH] = {};
+    if (GetModuleFileNameW(nullptr, processPath, MAX_PATH) == 0)
+        return;
+    const wchar_t* baseName = wcsrchr(processPath, L'\\');
+    baseName = baseName == nullptr ? processPath : baseName + 1;
+    if (_wcsicmp(baseName, L"SearchHost.exe") != 0 &&
+        _wcsicmp(baseName, L"SearchUI.exe") != 0 &&
+        _wcsicmp(baseName, L"SearchApp.exe") != 0)
+    {
+        return;
+    }
+    wchar_t message[256] = {};
+    swprintf_s(message,
+               L"search host=%s event=%s hr=0x%08lX",
+               baseName,
+               event,
+               static_cast<unsigned long>(hr));
+    WriteDiagnostic(message);
+}
+#define TV1_SEARCH_COM_DIAG(...) SearchComDiag(__VA_ARGS__)
+#else
+#define TV1_SEARCH_COM_DIAG(...) ((void)0)
+#endif
+
 class ClassFactory : public IClassFactory
 {
 public:
@@ -66,6 +111,7 @@ public:
 
     STDMETHODIMP CreateInstance(IUnknown* outer, REFIID riid, void** object) override
     {
+        TV1_SEARCH_COM_DIAG(L"class-create-begin");
         if (object == nullptr)
         {
             return E_POINTER;
@@ -83,6 +129,7 @@ public:
         }
         const HRESULT hr = service->QueryInterface(riid, object);
         service->Release();
+        TV1_SEARCH_COM_DIAG(L"class-create-result", hr);
         return hr;
     }
 
@@ -134,6 +181,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
 
 STDAPI DllGetClassObject(REFCLSID classId, REFIID riid, LPVOID* object)
 {
+    TV1_SEARCH_COM_DIAG(L"get-class-object");
     if (object == nullptr)
     {
         return E_POINTER;
@@ -151,6 +199,7 @@ STDAPI DllGetClassObject(REFCLSID classId, REFIID riid, LPVOID* object)
     }
     const HRESULT hr = factory->QueryInterface(riid, object);
     factory->Release();
+    TV1_SEARCH_COM_DIAG(L"class-factory-result", hr);
     return hr;
 }
 
@@ -266,9 +315,14 @@ HRESULT RegisterServer()
                               reinterpret_cast<void**>(&categoryMgr));
         if (SUCCEEDED(hr))
         {
-            hr = categoryMgr->RegisterCategory(CLSID_TV1TextService,
-                                               GUID_TFCAT_TIP_KEYBOARD,
-                                               CLSID_TV1TextService);
+            for (const GUID& category : kSupportCategories)
+            {
+                hr = categoryMgr->RegisterCategory(CLSID_TV1TextService,
+                                                   category,
+                                                   CLSID_TV1TextService);
+                if (FAILED(hr))
+                    break;
+            }
             categoryMgr->Release();
         }
     }
@@ -311,9 +365,12 @@ HRESULT UnregisterServer()
                                                 reinterpret_cast<void**>(&categoryMgr));
     if (SUCCEEDED(categoryHr))
     {
-        categoryMgr->UnregisterCategory(CLSID_TV1TextService,
-                                        GUID_TFCAT_TIP_KEYBOARD,
-                                        CLSID_TV1TextService);
+        for (const GUID& category : kSupportCategories)
+        {
+            categoryMgr->UnregisterCategory(CLSID_TV1TextService,
+                                            category,
+                                            CLSID_TV1TextService);
+        }
         categoryMgr->Release();
     }
 

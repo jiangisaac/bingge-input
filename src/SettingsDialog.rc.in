@@ -1,0 +1,61 @@
+#include <windows.h>
+#include "resource.h"
+
+#pragma code_page(65001)
+
+IDD_SETTINGS DIALOGEX 0, 0, 300, 324
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "炳哥输入设置"
+FONT 10, "Microsoft YaHei UI"
+BEGIN
+    GROUPBOX        "输入方案", -1, 10, 8, 280, 46
+    AUTORADIOBUTTON "拼音", IDC_SCHEME_PINYIN, 20, 25, 120, 12, WS_TABSTOP
+    AUTORADIOBUTTON "五笔86＋拼音", IDC_SCHEME_WUBI86, 150, 25, 130, 12
+
+    GROUPBOX        "标点", -1, 10, 60, 280, 46
+    AUTORADIOBUTTON "全角标点", IDC_PUNCTUATION_FULLWIDTH, 20, 77, 120, 12, WS_TABSTOP
+    AUTORADIOBUTTON "半角标点", IDC_PUNCTUATION_HALFWIDTH, 150, 77, 130, 12
+
+    GROUPBOX        "候选窗布局", -1, 10, 112, 280, 46
+    AUTORADIOBUTTON "横排", IDC_LAYOUT_HORIZONTAL, 20, 129, 120, 12, WS_TABSTOP
+    AUTORADIOBUTTON "竖排", IDC_LAYOUT_VERTICAL, 150, 129, 130, 12
+
+    GROUPBOX        "候选窗字体", -1, 10, 164, 280, 60
+    LTEXT           "Microsoft YaHei UI\n13.5 磅", IDC_CANDIDATE_FONT_VALUE, 20, 178, 170, 32
+    PUSHBUTTON      "选择字体…", IDC_CHOOSE_CANDIDATE_FONT, 200, 187, 80, 18, WS_TABSTOP
+
+    GROUPBOX        "关于", -1, 10, 230, 280, 60
+    LTEXT           "产品：炳哥输入", -1, 20, 245, 260, 10
+    LTEXT           "版本：无法读取", IDC_ABOUT_VERSION, 20, 259, 260, 10
+    LTEXT           "当前 DLL：无法读取", IDC_ABOUT_DLL, 20, 273, 260, 10
+
+    DEFPUSHBUTTON   "关闭", IDOK, 220, 298, 70, 18
+END
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,@PROJECT_VERSION_TWEAK@
+PRODUCTVERSION  @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,@PROJECT_VERSION_TWEAK@
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_DLL
+FILESUBTYPE     0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName", "Bingge Input\0"
+            VALUE "FileDescription", "炳哥输入 TSF 文本服务\0"
+            VALUE "FileVersion", "@PROJECT_VERSION@\0"
+            VALUE "InternalName", "TV1TSF\0"
+            VALUE "OriginalFilename", "TV1TSF.v@PROJECT_VERSION_MAJOR@.dll\0"
+            VALUE "ProductName", "炳哥输入\0"
+            VALUE "ProductVersion", "@PROJECT_VERSION@\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END

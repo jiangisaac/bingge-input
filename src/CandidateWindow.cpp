@@ -1,12 +1,15 @@
 #include "TV1TSF.h"
 
 #include <algorithm>
+#include <utility>
+#include <windowsx.h>
 
 namespace
 {
 constexpr wchar_t kCandidateWindowClass[] = L"TV1TSF.CandidateWindow";
 constexpr wchar_t kOperationHint[] = L"1-5 选词  , . 翻页  F8 方案  Ctrl+. 标点  F6 横/竖排";
 constexpr int kAnchorGap = 4;
+constexpr UINT kShowSettingsMessage = WM_APP + 1;
 
 struct LayoutInfo
 {
@@ -28,6 +31,8 @@ struct LayoutInfo
     int codeWidth = 0;
     int statusWidth = 0;
     int pageWidth = 0;
+    int settingsWidth = 0;
+    int settingsInset = 0;
     int hintWidth = 0;
 };
 
@@ -52,7 +57,7 @@ LayoutInfo BuildLayout(HDC dc,
                        const std::vector<std::wstring>& candidates,
                        size_t pageIndex,
                        size_t pageCount,
-                       bool chinese,
+                       InputMode mode,
                        InputScheme scheme,
                        bool vertical,
                        bool fullWidthPunctuation,
@@ -102,20 +107,23 @@ LayoutInfo BuildLayout(HDC dc,
     SelectObject(dc, smallFont ? smallFont : GetStockObject(DEFAULT_GUI_FONT));
     TEXTMETRICW smallMetrics{};
     GetTextMetricsW(dc, &smallMetrics);
-    layout.statusText = chinese
+    layout.statusText = mode == InputMode::Chinese
         ? (scheme == InputScheme::Pinyin ? L"当前：拼音" : L"当前：五笔86＋拼音")
-        : L"英文";
-    if (chinese)
+        : (mode == InputMode::EnglishSuggestion ? L"英文联想" : L"英文");
+    if (mode == InputMode::Chinese)
         layout.statusText += fullWidthPunctuation ? L"·全角" : L"·半角";
     const size_t displayedPage = pageCount == 0 ? 0 : pageIndex + 1;
     layout.pageText = std::to_wstring(displayedPage) + L"/" + std::to_wstring(pageCount);
     layout.statusWidth = TextWidth(dc, layout.statusText);
     layout.pageWidth = TextWidth(dc, layout.pageText);
+    layout.settingsWidth = TextWidth(dc, L"设置") + ScaleDpi(16, dpi);
+    layout.settingsInset = ScaleDpi(2, dpi);
     layout.hintWidth = TextWidth(dc, kOperationHint);
     layout.footerHeight = (std::max)(ScaleDpi(24, dpi), static_cast<int>(smallMetrics.tmHeight) + ScaleDpi(8, dpi));
     SelectObject(dc, oldFont);
 
-    const int headerWidth = layout.codeWidth + layout.statusWidth + layout.pageWidth + layout.gap * 2;
+    const int headerWidth = layout.codeWidth + layout.statusWidth + layout.pageWidth +
+                            layout.settingsWidth + layout.gap * 3;
     int contentWidth = (std::max)(headerWidth, layout.candidatesWidth);
     contentWidth = (std::max)(contentWidth, layout.hintWidth);
     layout.width = contentWidth + layout.margin * 2 + 2;
@@ -140,6 +148,19 @@ void DrawSingleLine(HDC dc, const std::wstring& text, RECT rect, UINT extraFlags
               static_cast<int>(text.size()),
               &rect,
               DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS | extraFlags);
+}
+
+RECT GetSettingsButtonRect(const RECT& client, const LayoutInfo& layout) noexcept
+{
+    const int right = (std::max)(layout.margin, static_cast<int>(client.right) - layout.margin);
+    const int left = (std::max)(layout.margin, right - layout.settingsWidth);
+    RECT button{left,
+                layout.margin + layout.settingsInset,
+                right,
+                layout.margin + layout.headerHeight - layout.settingsInset};
+    if (button.bottom < button.top)
+        button.bottom = button.top;
+    return button;
 }
 }
 
@@ -187,6 +208,11 @@ bool CandidateWindow::Create()
     return true;
 }
 
+void CandidateWindow::SetSettingsHandler(std::function<void()> handler)
+{
+    settingsHandler_ = std::move(handler);
+}
+
 void CandidateWindow::Destroy()
 {
     if (hwnd_ && IsWindow(hwnd_))
@@ -209,7 +235,7 @@ void CandidateWindow::SetContent(const std::wstring& code,
                                  const std::vector<std::wstring>& pageCandidates,
                                  size_t pageIndex,
                                  size_t pageCount,
-                                 bool chinese,
+                                 InputMode mode,
                                  InputScheme scheme)
 {
     code_ = code;
@@ -218,7 +244,7 @@ void CandidateWindow::SetContent(const std::wstring& code,
         candidates_.resize(kCandidatePageSize);
     pageIndex_ = pageIndex;
     pageCount_ = pageCount;
-    chinese_ = chinese;
+    inputMode_ = mode;
     scheme_ = scheme;
 
     if (IsVisible())
@@ -269,6 +295,28 @@ void CandidateWindow::SetFullWidthPunctuation(bool fullWidth)
         InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
+void CandidateWindow::SetFont(const std::wstring& family, int sizeTenths)
+{
+    if (fontFamily_ == family && fontSizeTenths_ == sizeTenths)
+        return;
+    fontFamily_ = family;
+    fontSizeTenths_ = sizeTenths;
+
+    if (hwnd_ != nullptr && IsWindow(hwnd_))
+    {
+        RecreateFonts();
+        if (IsVisible())
+        {
+            RECT current{};
+            GetWindowRect(hwnd_, &current);
+            const int gap = Scale(kAnchorGap);
+            RECT anchor{current.left, current.top - gap, current.left, current.top - gap};
+            SizeToContent(anchor);
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+}
+
 void CandidateWindow::ShowAt(const RECT& anchor)
 {
     if (!Create())
@@ -290,49 +338,86 @@ bool CandidateWindow::IsVisible() const noexcept
     return hwnd_ && IsWindow(hwnd_) && ::IsWindowVisible(hwnd_);
 }
 
+bool CandidateWindow::IsSettingsButtonAt(POINT point)
+{
+    if (!hwnd_ || !IsWindow(hwnd_))
+        return false;
+
+    HDC dc = GetDC(hwnd_);
+    if (!dc)
+        return false;
+    const LayoutInfo layout = BuildLayout(dc,
+                                          code_,
+                                          candidates_,
+                                          pageIndex_,
+                                          pageCount_,
+                                          inputMode_,
+                                          scheme_,
+                                          vertical_,
+                                          fullWidthPunctuation_,
+                                          dpi_,
+                                          font_,
+                                          smallFont_);
+    ReleaseDC(hwnd_, dc);
+
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    const RECT button = GetSettingsButtonRect(client, layout);
+    return PtInRect(&button, point) != FALSE;
+}
+
 void CandidateWindow::RecreateFonts()
 {
-    HFONT newFont = CreateFontW(-Scale(18),
-                                0,
-                                0,
-                                0,
-                                FW_NORMAL,
-                                FALSE,
-                                FALSE,
-                                FALSE,
-                                DEFAULT_CHARSET,
-                                OUT_DEFAULT_PRECIS,
-                                CLIP_DEFAULT_PRECIS,
-                                CLEARTYPE_QUALITY,
-                                DEFAULT_PITCH | FF_DONTCARE,
-                                L"Microsoft YaHei UI");
-    HFONT newSmallFont = CreateFontW(-Scale(12),
-                                     0,
-                                     0,
-                                     0,
-                                     FW_NORMAL,
-                                     FALSE,
-                                     FALSE,
-                                     FALSE,
-                                     DEFAULT_CHARSET,
-                                     OUT_DEFAULT_PRECIS,
-                                     CLIP_DEFAULT_PRECIS,
-                                     CLEARTYPE_QUALITY,
-                                     DEFAULT_PITCH | FF_DONTCARE,
-                                     L"Microsoft YaHei UI");
+    const int mainHeight = (std::max)(1, MulDiv(fontSizeTenths_, dpi_, 720));
+    const int smallHeight = (std::max)(1, MulDiv(mainHeight, 2, 3));
+    auto createPair = [mainHeight, smallHeight](const wchar_t* family,
+                                                HFONT& mainFont,
+                                                HFONT& smallFont) {
+        auto create = [family](int height) {
+            return CreateFontW(-height,
+                               0,
+                               0,
+                               0,
+                               FW_NORMAL,
+                               FALSE,
+                               FALSE,
+                               FALSE,
+                               DEFAULT_CHARSET,
+                               OUT_DEFAULT_PRECIS,
+                               CLIP_DEFAULT_PRECIS,
+                               CLEARTYPE_QUALITY,
+                               DEFAULT_PITCH | FF_DONTCARE,
+                               family);
+        };
+        mainFont = create(mainHeight);
+        smallFont = create(smallHeight);
+        if (mainFont != nullptr && smallFont != nullptr)
+            return true;
+        if (mainFont != nullptr)
+            DeleteObject(mainFont);
+        if (smallFont != nullptr)
+            DeleteObject(smallFont);
+        mainFont = nullptr;
+        smallFont = nullptr;
+        return false;
+    };
 
-    if (newFont)
+    HFONT newFont = nullptr;
+    HFONT newSmallFont = nullptr;
+    if (!createPair(fontFamily_.c_str(), newFont, newSmallFont) &&
+        fontFamily_ != kDefaultCandidateFontFace)
     {
-        if (font_)
-            DeleteObject(font_);
-        font_ = newFont;
+        createPair(kDefaultCandidateFontFace, newFont, newSmallFont);
     }
-    if (newSmallFont)
-    {
-        if (smallFont_)
-            DeleteObject(smallFont_);
-        smallFont_ = newSmallFont;
-    }
+    if (newFont == nullptr || newSmallFont == nullptr)
+        return;
+
+    if (font_ != nullptr)
+        DeleteObject(font_);
+    if (smallFont_ != nullptr)
+        DeleteObject(smallFont_);
+    font_ = newFont;
+    smallFont_ = newSmallFont;
 }
 
 void CandidateWindow::SizeToContent(const RECT& anchor)
@@ -348,7 +433,7 @@ void CandidateWindow::SizeToContent(const RECT& anchor)
                                           candidates_,
                                           pageIndex_,
                                           pageCount_,
-                                          chinese_,
+                                          inputMode_,
                                           scheme_,
                                           vertical_,
                                           fullWidthPunctuation_,
@@ -407,7 +492,7 @@ void CandidateWindow::Paint()
                                           candidates_,
                                           pageIndex_,
                                           pageCount_,
-                                          chinese_,
+                                          inputMode_,
                                           scheme_,
                                           vertical_,
                                           fullWidthPunctuation_,
@@ -478,15 +563,22 @@ void CandidateWindow::Paint()
                     y,
                     codeRect.right + layout.gap + layout.statusWidth,
                     y + layout.headerHeight};
-    SetTextColor(dc, chinese_ ? RGB(105, 211, 164) : RGB(176, 181, 194));
+    SetTextColor(dc, inputMode_ == InputMode::Chinese ? RGB(105, 211, 164) : RGB(176, 181, 194));
     DrawSingleLine(dc, layout.statusText, statusRect);
 
-    RECT pageRect{client.right - layout.margin - layout.pageWidth,
+    const RECT settingsRect = GetSettingsButtonRect(client, layout);
+    RECT pageRect{settingsRect.left - layout.gap - layout.pageWidth,
                   y,
-                  client.right - layout.margin,
+                  settingsRect.left - layout.gap,
                   y + layout.headerHeight};
     SetTextColor(dc, RGB(173, 181, 197));
     DrawSingleLine(dc, layout.pageText, pageRect, DT_RIGHT);
+
+    FillSolidRect(dc,
+                  settingsRect,
+                  settingsButtonPressed_ ? RGB(76, 85, 102) : RGB(48, 53, 64));
+    SetTextColor(dc, RGB(225, 231, 241));
+    DrawSingleLine(dc, L"设置", settingsRect, DT_CENTER);
 
     RECT headerSeparator{layout.margin,
                          y + layout.headerHeight,
@@ -513,6 +605,7 @@ void CandidateWindow::Paint()
         HGDIOBJ oldPen = SelectObject(dc, borderPen);
         HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
         Rectangle(dc, 0, 0, client.right, client.bottom);
+        Rectangle(dc, settingsRect.left, settingsRect.top, settingsRect.right, settingsRect.bottom);
         SelectObject(dc, oldBrush);
         SelectObject(dc, oldPen);
         DeleteObject(borderPen);
@@ -541,6 +634,46 @@ LRESULT CALLBACK CandidateWindow::WindowProc(HWND hwnd, UINT message, WPARAM wPa
     case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE;
 
+    case WM_LBUTTONDOWN:
+    {
+        const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        if (self->IsSettingsButtonAt(point))
+        {
+            self->settingsButtonPressed_ = true;
+            SetCapture(hwnd);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        break;
+    }
+
+    case WM_LBUTTONUP:
+        if (self->settingsButtonPressed_)
+        {
+            const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            const bool activate = self->IsSettingsButtonAt(point);
+            self->settingsButtonPressed_ = false;
+            ReleaseCapture();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            if (activate)
+                PostMessageW(hwnd, kShowSettingsMessage, 0, 0);
+            return 0;
+        }
+        break;
+
+    case WM_CAPTURECHANGED:
+        if (self->settingsButtonPressed_)
+        {
+            self->settingsButtonPressed_ = false;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
+
+    case kShowSettingsMessage:
+        if (self->settingsHandler_)
+            self->settingsHandler_();
+        return 0;
+
     case WM_PAINT:
         self->Paint();
         return 0;
@@ -565,6 +698,7 @@ LRESULT CALLBACK CandidateWindow::WindowProc(HWND hwnd, UINT message, WPARAM wPa
     }
 
     case WM_NCDESTROY:
+        self->settingsButtonPressed_ = false;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         if (self->hwnd_ == hwnd)
             self->hwnd_ = nullptr;

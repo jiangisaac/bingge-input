@@ -1,12 +1,178 @@
 #include "TV1TSF.h"
+#include "CandidateListUIElement.h"
 
 #include <algorithm>
+#include <cwchar>
 #include <new>
 
 namespace
 {
 constexpr int kActionKey = 0;
 constexpr int kActionCancel = 1;
+
+wchar_t MapFullWidthPunctuation(WPARAM wParam);
+
+#ifdef TV1TSF_SEARCH_DIAGNOSTICS
+const wchar_t* SearchHostName() noexcept
+{
+    static wchar_t processPath[MAX_PATH] = {};
+    static bool initialized = false;
+    if (!initialized)
+    {
+        GetModuleFileNameW(nullptr, processPath, MAX_PATH);
+        initialized = true;
+    }
+
+    const wchar_t* baseName = wcsrchr(processPath, L'\\');
+    baseName = baseName == nullptr ? processPath : baseName + 1;
+    if (_wcsicmp(baseName, L"SearchHost.exe") == 0 ||
+        _wcsicmp(baseName, L"SearchUI.exe") == 0 ||
+        _wcsicmp(baseName, L"SearchApp.exe") == 0)
+    {
+        return baseName;
+    }
+    return L"other";
+}
+
+const wchar_t* SearchKeyClass(WPARAM wParam) noexcept
+{
+    if (wParam >= 'A' && wParam <= 'Z') return L"letter";
+    if ((wParam >= '0' && wParam <= '9') ||
+        (wParam >= VK_NUMPAD0 && wParam <= VK_NUMPAD9)) return L"digit";
+    if (wParam == VK_SHIFT) return L"shift";
+    if (wParam == VK_CAPITAL) return L"capslock";
+    if (wParam == VK_BACK || wParam == VK_ESCAPE || wParam == VK_RETURN || wParam == VK_SPACE)
+        return L"editing";
+    if (wParam == VK_F6 || wParam == VK_F8) return L"function";
+    if (MapFullWidthPunctuation(wParam) != L'\0') return L"punctuation";
+    return L"other";
+}
+
+void SearchDiag(const wchar_t* event, HRESULT hr = S_OK) noexcept
+{
+    wchar_t message[256] = {};
+    swprintf_s(message,
+               L"search host=%s event=%s hr=0x%08lX",
+               SearchHostName(),
+               event,
+               static_cast<unsigned long>(hr));
+    WriteDiagnostic(message);
+}
+
+void SearchEditDiag(const wchar_t* event, HRESULT hr, HRESULT sessionResult) noexcept
+{
+    wchar_t message[256] = {};
+    swprintf_s(message,
+               L"search host=%s event=%s hr=0x%08lX session=0x%08lX",
+               SearchHostName(),
+               event,
+               static_cast<unsigned long>(hr),
+               static_cast<unsigned long>(sessionResult));
+    WriteDiagnostic(message);
+}
+
+void SearchKeyDiag(const wchar_t* event,
+                   WPARAM wParam,
+                   int eaten,
+                   bool chinese,
+                   bool capsLock,
+                   bool composing) noexcept
+{
+    wchar_t message[256] = {};
+    swprintf_s(message,
+               L"search host=%s event=%s key=%s eaten=%d chinese=%d caps=%d composing=%d",
+               SearchHostName(),
+               event,
+               SearchKeyClass(wParam),
+               eaten,
+               chinese ? 1 : 0,
+               capsLock ? 1 : 0,
+               composing ? 1 : 0);
+    WriteDiagnostic(message);
+}
+
+void SearchCandidateDiag(const wchar_t* event, const RECT& anchor, bool visible) noexcept
+{
+    wchar_t message[256] = {};
+    swprintf_s(message,
+               L"search host=%s event=%s rect=%ld,%ld,%ld,%ld visible=%d",
+               SearchHostName(),
+               event,
+               anchor.left,
+               anchor.top,
+               anchor.right,
+               anchor.bottom,
+               visible ? 1 : 0);
+    WriteDiagnostic(message);
+}
+#define TV1_SEARCH_DIAG(...) SearchDiag(__VA_ARGS__)
+#define TV1_SEARCH_CANDIDATE_DIAG(...) SearchCandidateDiag(__VA_ARGS__)
+#define TV1_SEARCH_EDIT_DIAG(...) SearchEditDiag(__VA_ARGS__)
+#define TV1_SEARCH_KEY_DIAG(...) SearchKeyDiag(__VA_ARGS__)
+#else
+#define TV1_SEARCH_DIAG(...) ((void)0)
+#define TV1_SEARCH_CANDIDATE_DIAG(...) ((void)0)
+#define TV1_SEARCH_EDIT_DIAG(...) ((void)0)
+#define TV1_SEARCH_KEY_DIAG(...) ((void)0)
+#endif
+
+void CandidateUIDiag(const wchar_t* stage, HRESULT hr, int displayState) noexcept
+{
+    wchar_t message[192] = {};
+    swprintf_s(message,
+               L"candidate-ui stage=%s hr=0x%08lX display=%d",
+               stage,
+               static_cast<unsigned long>(hr),
+               displayState);
+    WriteDiagnostic(message);
+}
+
+void WriteDwordSetting(const wchar_t* name, DWORD value) noexcept
+{
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                        L"Software\\TV1TSF",
+                        0,
+                        nullptr,
+                        0,
+                        KEY_SET_VALUE,
+                        nullptr,
+                        &key,
+                        nullptr) == ERROR_SUCCESS)
+    {
+        RegSetValueExW(key, name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&value), sizeof(value));
+        RegCloseKey(key);
+    }
+}
+
+void WriteStringSetting(const wchar_t* name, const std::wstring& value) noexcept
+{
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                        L"Software\\TV1TSF",
+                        0,
+                        nullptr,
+                        0,
+                        KEY_SET_VALUE,
+                        nullptr,
+                        &key,
+                        nullptr) == ERROR_SUCCESS)
+    {
+        RegSetValueExW(key,
+                       name,
+                       0,
+                       REG_SZ,
+                       reinterpret_cast<const BYTE*>(value.c_str()),
+                       static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(key);
+    }
+}
+
+bool IsValidCandidateFont(const std::wstring& family, int sizeTenths) noexcept
+{
+    return !family.empty() && family.size() < LF_FACESIZE &&
+           sizeTenths >= 10 && sizeTenths <= 7200;
+}
 
 void CollapseSelectionToEnd(TfEditCookie editCookie, ITfContext* context, ITfRange* range)
 {
@@ -119,10 +285,17 @@ wchar_t MapHalfWidthPunctuation(WPARAM wParam)
 TextService::TextService()
 {
     InterlockedIncrement(&g_serverLocks);
+    TV1_SEARCH_DIAG(L"service-construct");
 }
 
 TextService::~TextService()
 {
+    EndCandidateUIElement();
+    if (uiElementMgr_ != nullptr)
+    {
+        uiElementMgr_->Release();
+        uiElementMgr_ = nullptr;
+    }
     DetachDocument();
     if (composition_ != nullptr)
     {
@@ -141,6 +314,7 @@ TextService::~TextService()
 
 STDMETHODIMP TextService::QueryInterface(REFIID riid, void** object)
 {
+    TV1_SEARCH_DIAG(L"service-query-interface");
     if (object == nullptr)
     {
         return E_POINTER;
@@ -212,19 +386,28 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* threadMgr, TfClientId client
     threadMgr_->AddRef();
     clientId_ = clientId;
     activated_ = true;
+    TV1_SEARCH_DIAG(L"activate-begin");
+
+    HRESULT hr = threadMgr_->QueryInterface(IID_ITfUIElementMgr,
+                                            reinterpret_cast<void**>(&uiElementMgr_));
+    CandidateUIDiag(L"manager-query", hr, uiElementMgr_ == nullptr ? -1 : 0);
 
     ITfSource* source = nullptr;
-    if (SUCCEEDED(threadMgr_->QueryInterface(IID_ITfSource, reinterpret_cast<void**>(&source))))
+    hr = threadMgr_->QueryInterface(IID_ITfSource, reinterpret_cast<void**>(&source));
+    TV1_SEARCH_DIAG(L"thread-source-query", hr);
+    if (SUCCEEDED(hr) && source != nullptr)
     {
-        source->AdviseSink(IID_ITfThreadMgrEventSink,
-                           static_cast<ITfThreadMgrEventSink*>(this),
-                           &threadSinkCookie_);
+        hr = source->AdviseSink(IID_ITfThreadMgrEventSink,
+                                static_cast<ITfThreadMgrEventSink*>(this),
+                                &threadSinkCookie_);
+        TV1_SEARCH_DIAG(L"thread-sink-advise", hr);
         source->Release();
     }
 
     ITfKeystrokeMgr* keystrokeMgr = nullptr;
-    HRESULT hr = threadMgr_->QueryInterface(IID_ITfKeystrokeMgr,
-                                            reinterpret_cast<void**>(&keystrokeMgr));
+    hr = threadMgr_->QueryInterface(IID_ITfKeystrokeMgr,
+                                    reinterpret_cast<void**>(&keystrokeMgr));
+    TV1_SEARCH_DIAG(L"keystroke-query", hr);
     if (FAILED(hr) || keystrokeMgr == nullptr)
     {
         WriteDiagnostic(L"keystroke-mgr-unavailable");
@@ -233,6 +416,7 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* threadMgr, TfClientId client
     }
 
     hr = keystrokeMgr->AdviseKeyEventSink(clientId_, static_cast<ITfKeyEventSink*>(this), TRUE);
+    TV1_SEARCH_DIAG(L"key-sink-advise", hr);
     if (FAILED(hr))
     {
         keystrokeMgr->Release();
@@ -245,11 +429,12 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* threadMgr, TfClientId client
     TF_PRESERVEDKEY preservedKey = {};
     preservedKey.uVKey = VK_SPACE;
     preservedKey.uModifiers = TF_MOD_CONTROL;
-    keystrokeMgr->PreserveKey(clientId_,
-                              GUID_TV1PreserveKey,
-                              &preservedKey,
-                              L"Ctrl+Space 切换中英文",
-                              static_cast<ULONG>(wcslen(L"Ctrl+Space 切换中英文")));
+    hr = keystrokeMgr->PreserveKey(clientId_,
+                                   GUID_TV1PreserveKey,
+                                   &preservedKey,
+                                   L"Ctrl+Space 切换中英文",
+                                   static_cast<ULONG>(wcslen(L"Ctrl+Space 切换中英文")));
+    TV1_SEARCH_DIAG(L"preserve-mode-key", hr);
 
     TF_PRESERVEDKEY schemeKey = {};
     schemeKey.uVKey = VK_F8;
@@ -259,6 +444,7 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* threadMgr, TfClientId client
                                    &schemeKey,
                                    L"F8 切换拼音/五笔86",
                                    static_cast<ULONG>(wcslen(L"F8 切换拼音/五笔86")));
+    TV1_SEARCH_DIAG(L"preserve-scheme-key", hr);
     WriteDiagnostic(FAILED(hr) ? L"scheme-key-preserve-failed" : L"scheme-key-ready");
 
     TF_PRESERVEDKEY punctuationKey = {};
@@ -269,11 +455,11 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* threadMgr, TfClientId client
                                    &punctuationKey,
                                    L"Ctrl+. 切换全角/半角标点",
                                    static_cast<ULONG>(wcslen(L"Ctrl+. 切换全角/半角标点")));
+    TV1_SEARCH_DIAG(L"preserve-punctuation-key", hr);
     WriteDiagnostic(FAILED(hr) ? L"punctuation-key-preserve-failed" : L"punctuation-key-ready");
     keystrokeMgr->Release();
     WriteDiagnostic(L"key-sink-ready");
 
-    candidateWindow_.Create();
     DWORD scheme = 0;
     DWORD schemeSize = sizeof(scheme);
     if (RegGetValueW(HKEY_CURRENT_USER,
@@ -316,18 +502,63 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* threadMgr, TfClientId client
     }
     candidateWindow_.SetFullWidthPunctuation(fullWidthPunctuation_);
 
+    candidateFontFamily_ = kDefaultCandidateFontFace;
+    candidateFontSizeTenths_ = kDefaultCandidateFontSizeTenths;
+    wchar_t fontFace[LF_FACESIZE] = {};
+    DWORD fontFaceSize = sizeof(fontFace);
+    if (RegGetValueW(HKEY_CURRENT_USER,
+                     L"Software\\TV1TSF",
+                     L"CandidateFontFace",
+                     RRF_RT_REG_SZ,
+                     nullptr,
+                     fontFace,
+                     &fontFaceSize) == ERROR_SUCCESS)
+    {
+        fontFace[LF_FACESIZE - 1] = L'\0';
+        const std::wstring family(fontFace);
+        if (IsValidCandidateFont(family, kDefaultCandidateFontSizeTenths))
+            candidateFontFamily_ = family;
+    }
+
+    DWORD fontSizeTenths = kDefaultCandidateFontSizeTenths;
+    size = sizeof(fontSizeTenths);
+    if (RegGetValueW(HKEY_CURRENT_USER,
+                     L"Software\\TV1TSF",
+                     L"CandidateFontSizeTenths",
+                     RRF_RT_REG_DWORD,
+                     nullptr,
+                     &fontSizeTenths,
+                     &size) == ERROR_SUCCESS &&
+        fontSizeTenths >= 10 && fontSizeTenths <= 7200)
+    {
+        candidateFontSizeTenths_ = static_cast<int>(fontSizeTenths);
+    }
+    candidateWindow_.SetFont(candidateFontFamily_, candidateFontSizeTenths_);
+    candidateWindow_.SetSettingsHandler([this]() { OpenSettingsDialog(); });
+    const bool candidateCreated = candidateWindow_.Create();
+    (void)candidateCreated;
+    TV1_SEARCH_DIAG(L"candidate-create-result",
+                    candidateCreated ? S_OK : HRESULT_FROM_WIN32(GetLastError()));
+
     capsLockEnglish_ = (GetKeyState(VK_CAPITAL) & 1) != 0;
     if (capsLockEnglish_)
     {
-        chineseBeforeCapsLock_ = chinese_;
-        chinese_ = false;
+        modeBeforeCapsLock_ = inputMode_;
+        inputMode_ = InputMode::English;
     }
 
     ITfDocumentMgr* focus = nullptr;
-    if (SUCCEEDED(threadMgr_->GetFocus(&focus)) && focus != nullptr)
+    hr = threadMgr_->GetFocus(&focus);
+    TV1_SEARCH_DIAG(L"initial-focus-query", hr);
+    if (SUCCEEDED(hr) && focus != nullptr)
     {
+        TV1_SEARCH_DIAG(L"initial-focus-present");
         AttachDocument(focus);
         focus->Release();
+    }
+    else
+    {
+        TV1_SEARCH_DIAG(L"initial-focus-none");
     }
 
     SetKeyboardOpenState();
@@ -337,12 +568,14 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* threadMgr, TfClientId client
 
 STDMETHODIMP TextService::Deactivate()
 {
+    TV1_SEARCH_DIAG(L"deactivate");
     if (!activated_)
     {
         return S_OK;
     }
 
     CancelComposition(true);
+    EndCandidateUIElement();
     candidateWindow_.Destroy();
 
     if (threadMgr_ != nullptr)
@@ -387,6 +620,11 @@ STDMETHODIMP TextService::Deactivate()
 
     DetachDocument();
     ClearCompositionState();
+    if (uiElementMgr_ != nullptr)
+    {
+        uiElementMgr_->Release();
+        uiElementMgr_ = nullptr;
+    }
     if (threadMgr_ != nullptr)
     {
         threadMgr_->Release();
@@ -403,13 +641,17 @@ void TextService::AttachDocument(ITfDocumentMgr* documentMgr)
     DetachDocument();
     if (documentMgr == nullptr)
     {
+        TV1_SEARCH_DIAG(L"document-detached");
         return;
     }
 
     documentMgr_ = documentMgr;
     documentMgr_->AddRef();
-    if (FAILED(documentMgr_->GetBase(&context_)) || context_ == nullptr)
+    const HRESULT hr = documentMgr_->GetBase(&context_);
+    TV1_SEARCH_DIAG(L"document-get-base", hr);
+    if (FAILED(hr) || context_ == nullptr)
     {
+        TV1_SEARCH_DIAG(L"document-context-unavailable", FAILED(hr) ? hr : E_NOINTERFACE);
         return;
     }
 
@@ -431,8 +673,10 @@ void TextService::DetachDocument()
 
 STDMETHODIMP TextService::OnSetFocus(BOOL foreground)
 {
+    TV1_SEARCH_DIAG(foreground ? L"thread-focus-gained" : L"thread-focus-lost");
     if (!foreground)
     {
+        EndCandidateUIElement();
         candidateWindow_.Hide();
         CancelComposition(false);
     }
@@ -449,12 +693,19 @@ bool TextService::ShouldHandleKey(WPARAM wParam, LPARAM) const
         return false;
     if (wParam == VK_SHIFT)
         return true;
-    if (!chinese_)
+    if (inputMode_ == InputMode::English)
         return false;
-    if ((wParam >= 'A' && wParam <= 'Z') || wParam == VK_F8)
+    if (wParam >= 'A' && wParam <= 'Z')
         return true;
-    if (MapFullWidthPunctuation(wParam) != L'\0')
+    if (inputMode_ == InputMode::Chinese)
+    {
+        if (wParam == VK_F8 || MapFullWidthPunctuation(wParam) != L'\0')
+            return true;
+    }
+    else if (MapHalfWidthPunctuation(wParam) != L'\0')
+    {
         return true;
+    }
     if (composition_ == nullptr)
         return false;
     if ((wParam >= '0' && wParam <= '9') ||
@@ -481,6 +732,7 @@ STDMETHODIMP TextService::OnTestKeyDown(ITfContext*, WPARAM wParam, LPARAM lPara
         return E_POINTER;
     }
     *eaten = ShouldHandleKey(wParam, lParam) ? TRUE : FALSE;
+    TV1_SEARCH_KEY_DIAG(L"test-key-down", wParam, *eaten, inputMode_ == InputMode::Chinese, capsLockEnglish_, composition_ != nullptr);
     return S_OK;
 }
 
@@ -489,10 +741,14 @@ STDMETHODIMP TextService::OnKeyDown(ITfContext* context, WPARAM wParam, LPARAM l
     if (context == nullptr || eaten == nullptr)
         return E_POINTER;
     *eaten = FALSE;
+    TV1_SEARCH_KEY_DIAG(L"key-down", wParam, -1, inputMode_ == InputMode::Chinese, capsLockEnglish_, composition_ != nullptr);
     if (shiftPressed_ && wParam != VK_SHIFT)
         shiftChordUsed_ = true;
     if (!ShouldHandleKey(wParam, lParam))
+    {
+        TV1_SEARCH_KEY_DIAG(L"key-down-pass", wParam, *eaten, inputMode_ == InputMode::Chinese, capsLockEnglish_, composition_ != nullptr);
         return S_OK;
+    }
 
     if (wParam == VK_CAPITAL)
     {
@@ -502,17 +758,23 @@ STDMETHODIMP TextService::OnKeyDown(ITfContext* context, WPARAM wParam, LPARAM l
             if (!capsLockEnglish_)
             {
                 capsLockEnglish_ = true;
-                chineseBeforeCapsLock_ = chinese_;
-                if (chinese_)
+                // 英文联想是单次组合态：若编码中途按 CapsLock，恢复目标应为中文，
+                // 否则关闭 CapsLock 后会留下"无组合串的英文联想"异常状态。
+                modeBeforeCapsLock_ = inputMode_ == InputMode::EnglishSuggestion
+                    ? InputMode::Chinese
+                    : inputMode_;
+                if (composition_ != nullptr)
                     CancelComposition(true);
-                chinese_ = false;
+                inputMode_ = InputMode::English;
                 WriteDiagnostic(L"capslock-english");
             }
             else
             {
                 capsLockEnglish_ = false;
-                chinese_ = chineseBeforeCapsLock_;
-                WriteDiagnostic(chinese_ ? L"capslock-restore-chinese" : L"capslock-remain-english");
+                inputMode_ = modeBeforeCapsLock_;
+                WriteDiagnostic(inputMode_ == InputMode::Chinese
+                                    ? L"capslock-restore-chinese"
+                                    : L"capslock-remain-english");
             }
             SetKeyboardOpenState();
         }
@@ -552,6 +814,7 @@ STDMETHODIMP TextService::OnTestKeyUp(ITfContext*, WPARAM wParam, LPARAM, BOOL* 
         return E_POINTER;
     }
     *eaten = wParam == VK_SHIFT && shiftPressed_ ? TRUE : FALSE;
+    TV1_SEARCH_KEY_DIAG(L"test-key-up", wParam, *eaten, inputMode_ == InputMode::Chinese, capsLockEnglish_, composition_ != nullptr);
     return S_OK;
 }
 
@@ -562,6 +825,7 @@ STDMETHODIMP TextService::OnKeyUp(ITfContext*, WPARAM wParam, LPARAM, BOOL* eate
         return E_POINTER;
     }
     *eaten = FALSE;
+    TV1_SEARCH_KEY_DIAG(L"key-up", wParam, -1, inputMode_ == InputMode::Chinese, capsLockEnglish_, composition_ != nullptr);
     if (wParam != VK_SHIFT || !shiftPressed_)
         return S_OK;
 
@@ -590,7 +854,7 @@ STDMETHODIMP TextService::OnPreservedKey(ITfContext*, REFGUID guid, BOOL* eaten)
     }
     else if (guid == GUID_TV1SchemeKey)
     {
-        if (chinese_)
+        if (inputMode_ == InputMode::Chinese)
         {
             ToggleScheme();
         }
@@ -598,7 +862,7 @@ STDMETHODIMP TextService::OnPreservedKey(ITfContext*, REFGUID guid, BOOL* eaten)
     }
     else if (guid == GUID_TV1PunctuationKey)
     {
-        if (chinese_)
+        if (inputMode_ == InputMode::Chinese)
         {
             TogglePunctuation();
         }
@@ -621,6 +885,8 @@ HRESULT TextService::RequestKeyEdit(ITfContext* context, WPARAM wParam, LPARAM l
                                                     TF_ES_SYNC | TF_ES_READWRITE,
                                                     &sessionResult);
     session->Release();
+    TV1_SEARCH_EDIT_DIAG(L"key-edit-request", hr, sessionResult);
+    TV1_SEARCH_KEY_DIAG(L"key-edit-result", wParam, *eaten, inputMode_ == InputMode::Chinese, capsLockEnglish_, composition_ != nullptr);
     if (FAILED(hr) || FAILED(sessionResult))
     {
         *eaten = FALSE;
@@ -632,13 +898,13 @@ HRESULT TextService::RequestKeyEdit(ITfContext* context, WPARAM wParam, LPARAM l
 
 void TextService::CancelComposition(bool synchronous)
 {
+    EndCandidateUIElement();
+    candidateWindow_.Hide();
     if (composition_ == nullptr || compositionContext_ == nullptr)
     {
-        candidateWindow_.Hide();
         return;
     }
 
-    candidateWindow_.Hide();
     EditSession* session = new (std::nothrow) EditSession(this,
                                                            compositionContext_,
                                                            0,
@@ -654,6 +920,7 @@ void TextService::CancelComposition(bool synchronous)
     const DWORD flags = TF_ES_READWRITE | (synchronous ? TF_ES_SYNC : TF_ES_ASYNC);
     const HRESULT hr = compositionContext_->RequestEditSession(clientId_, session, flags, &sessionResult);
     session->Release();
+    TV1_SEARCH_EDIT_DIAG(L"cancel-edit-request", hr, sessionResult);
     if (FAILED(hr) || FAILED(sessionResult))
     {
         WriteDiagnostic(L"cancel-edit-failed");
@@ -671,6 +938,7 @@ HRESULT TextService::ExecuteEditSession(TfEditCookie editCookie,
                                         int action,
                                         BOOL* eaten)
 {
+    TV1_SEARCH_DIAG(action == kActionKey ? L"edit-session-key" : L"edit-session-cancel");
     if (action == kActionCancel)
     {
         return FinishComposition(editCookie, context, nullptr, true);
@@ -685,20 +953,26 @@ HRESULT TextService::ProcessKey(TfEditCookie editCookie, ITfContext* context, WP
         *eaten = TRUE;
     }
 
-    if (wParam >= 'A' && wParam <= 'Z')
+    const bool letterKey = wParam >= 'A' && wParam <= 'Z';
+    const bool shiftedLetter = letterKey && (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    if (inputMode_ == InputMode::Chinese && shiftedLetter && composition_ == nullptr)
     {
-        if ((GetKeyState(VK_SHIFT) & 0x8000) != 0)
+        inputMode_ = InputMode::EnglishSuggestion;
+        SetKeyboardOpenState();
+        const HRESULT hr = StartComposition(editCookie, context, static_cast<wchar_t>(wParam));
+        if (FAILED(hr))
         {
-            if (composition_ != nullptr)
-            {
-                const HRESULT hr = FinishComposition(editCookie, context, nullptr, true);
-                if (FAILED(hr))
-                    return hr;
-            }
-            const wchar_t text[] = {static_cast<wchar_t>(wParam), L'\0'};
-            return InsertTextAtSelection(editCookie, context, text);
+            inputMode_ = InputMode::Chinese;
+            SetKeyboardOpenState();
         }
+        return hr;
+    }
 
+    if (inputMode_ == InputMode::EnglishSuggestion)
+        return ProcessEnglishSuggestionKey(editCookie, context, wParam, eaten);
+
+    if (letterKey)
+    {
         if (code_.size() >= 32)
         {
             return S_OK;
@@ -828,6 +1102,118 @@ HRESULT TextService::ProcessKey(TfEditCookie editCookie, ITfContext* context, WP
     }
 }
 
+HRESULT TextService::ProcessEnglishSuggestionKey(TfEditCookie editCookie,
+                                                 ITfContext* context,
+                                                 WPARAM wParam,
+                                                 BOOL* eaten)
+{
+    if (eaten != nullptr)
+        *eaten = TRUE;
+
+    if (wParam >= 'A' && wParam <= 'Z')
+    {
+        if (code_.size() >= 128)
+            return S_OK;
+        const bool shifted = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const wchar_t letter = shifted
+            ? static_cast<wchar_t>(wParam)
+            : static_cast<wchar_t>(wParam - 'A' + L'a');
+        if (composition_ == nullptr)
+            return StartComposition(editCookie, context, letter);
+        code_.push_back(letter);
+        const HRESULT hr = UpdateComposition(editCookie, context);
+        if (SUCCEEDED(hr))
+            RefreshCandidates(editCookie, context);
+        return hr;
+    }
+
+    const wchar_t punctuation = MapHalfWidthPunctuation(wParam);
+    if (punctuation != L'\0')
+    {
+        const bool shifted = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if (composition_ != nullptr && !shifted)
+        {
+            if (wParam == VK_OEM_COMMA && pageIndex_ > 0)
+            {
+                --pageIndex_;
+                RefreshCandidates(editCookie, context);
+                return S_OK;
+            }
+            if (wParam == VK_OEM_PERIOD &&
+                (pageIndex_ + 1) * kCandidatePageSize < candidates_.size())
+            {
+                ++pageIndex_;
+                RefreshCandidates(editCookie, context);
+                return S_OK;
+            }
+        }
+
+        if (composition_ != nullptr)
+        {
+            const std::wstring committed = code_ + punctuation;
+            return FinishComposition(editCookie, context, committed.c_str(), false);
+        }
+        const wchar_t text[] = {punctuation, L'\0'};
+        return InsertTextAtSelection(editCookie, context, text);
+    }
+
+    if (composition_ == nullptr)
+        return S_OK;
+
+    if ((wParam >= '0' && wParam <= '9') ||
+        (wParam >= VK_NUMPAD0 && wParam <= VK_NUMPAD9))
+    {
+        const UINT digit = wParam >= VK_NUMPAD0 && wParam <= VK_NUMPAD9
+            ? static_cast<UINT>(wParam - VK_NUMPAD0)
+            : static_cast<UINT>(wParam - '0');
+        const size_t indexOnPage = digit == 0 ? 9 : static_cast<size_t>(digit - 1);
+        const size_t index = pageIndex_ * kCandidatePageSize + indexOnPage;
+        if (indexOnPage < kCandidatePageSize && index < candidates_.size())
+            return FinishComposition(editCookie, context, candidates_[index].c_str(), false);
+
+        const std::wstring committed =
+            code_ + static_cast<wchar_t>(L'0' + digit);
+        return FinishComposition(editCookie, context, committed.c_str(), false);
+    }
+
+    switch (wParam)
+    {
+    case VK_BACK:
+        if (!code_.empty())
+            code_.pop_back();
+        if (code_.empty())
+            return FinishComposition(editCookie, context, nullptr, true);
+        {
+            const HRESULT hr = UpdateComposition(editCookie, context);
+            if (SUCCEEDED(hr))
+                RefreshCandidates(editCookie, context);
+            return hr;
+        }
+
+    case VK_ESCAPE:
+        return FinishComposition(editCookie, context, nullptr, true);
+
+    case VK_RETURN:
+        return FinishComposition(editCookie, context, code_.c_str(), false);
+
+    case VK_SPACE:
+        if (!candidates_.empty())
+        {
+            const size_t index = std::min(pageIndex_ * kCandidatePageSize, candidates_.size() - 1);
+            return FinishComposition(editCookie, context, candidates_[index].c_str(), false);
+        }
+        return FinishComposition(editCookie, context, code_.c_str(), false);
+
+    case VK_F6:
+        ToggleLayout();
+        ShowCandidateWindow();
+        return S_OK;
+
+    default:
+        return S_OK;
+    }
+}
+
 HRESULT TextService::InsertTextAtSelection(TfEditCookie editCookie,
                                             ITfContext* context,
                                             const wchar_t* text)
@@ -838,6 +1224,7 @@ HRESULT TextService::InsertTextAtSelection(TfEditCookie editCookie,
     ITfInsertAtSelection* insertAtSelection = nullptr;
     HRESULT hr = context->QueryInterface(IID_ITfInsertAtSelection,
                                          reinterpret_cast<void**>(&insertAtSelection));
+    TV1_SEARCH_DIAG(L"direct-insert-query", hr);
     if (FAILED(hr) || insertAtSelection == nullptr)
         return FAILED(hr) ? hr : E_NOINTERFACE;
 
@@ -848,6 +1235,7 @@ HRESULT TextService::InsertTextAtSelection(TfEditCookie editCookie,
                                                   static_cast<LONG>(wcslen(text)),
                                                   &range);
     insertAtSelection->Release();
+    TV1_SEARCH_DIAG(L"direct-insert-result", FAILED(hr) ? hr : (range == nullptr ? E_FAIL : S_OK));
     if (FAILED(hr) || range == nullptr)
         return FAILED(hr) ? hr : E_FAIL;
 
@@ -866,6 +1254,7 @@ HRESULT TextService::StartComposition(TfEditCookie editCookie, ITfContext* conte
     ITfInsertAtSelection* insertAtSelection = nullptr;
     HRESULT hr = context->QueryInterface(IID_ITfInsertAtSelection,
                                          reinterpret_cast<void**>(&insertAtSelection));
+    TV1_SEARCH_DIAG(L"composition-insert-query", hr);
     if (FAILED(hr))
     {
         return hr;
@@ -874,6 +1263,7 @@ HRESULT TextService::StartComposition(TfEditCookie editCookie, ITfContext* conte
     ITfRange* range = nullptr;
     hr = insertAtSelection->InsertTextAtSelection(editCookie, 0, &letter, 1, &range);
     insertAtSelection->Release();
+    TV1_SEARCH_DIAG(L"composition-insert-result", FAILED(hr) ? hr : (range == nullptr ? E_FAIL : S_OK));
     if (FAILED(hr) || range == nullptr)
     {
         return FAILED(hr) ? hr : E_FAIL;
@@ -882,6 +1272,7 @@ HRESULT TextService::StartComposition(TfEditCookie editCookie, ITfContext* conte
     ITfContextComposition* contextComposition = nullptr;
     hr = context->QueryInterface(IID_ITfContextComposition,
                                  reinterpret_cast<void**>(&contextComposition));
+    TV1_SEARCH_DIAG(L"composition-interface-query", FAILED(hr) ? hr : (contextComposition == nullptr ? E_NOINTERFACE : S_OK));
     if (FAILED(hr) || contextComposition == nullptr)
     {
         range->SetText(editCookie, 0, L"", 0);
@@ -895,6 +1286,7 @@ HRESULT TextService::StartComposition(TfEditCookie editCookie, ITfContext* conte
                                                static_cast<ITfCompositionSink*>(this),
                                                &composition);
     contextComposition->Release();
+    TV1_SEARCH_DIAG(L"composition-start-result", FAILED(hr) ? hr : (composition == nullptr ? E_FAIL : S_OK));
     if (FAILED(hr) || composition == nullptr)
     {
         range->SetText(editCookie, 0, L"", 0);
@@ -967,14 +1359,21 @@ HRESULT TextService::FinishComposition(TfEditCookie editCookie,
     }
     if (SUCCEEDED(hr))
     {
-        CollapseSelectionToEnd(editCookie, context, range);
         hr = composition->EndComposition(editCookie);
+        if (SUCCEEDED(hr))
+            CollapseSelectionToEnd(editCookie, context, range);
     }
     range->Release();
 
-    if (SUCCEEDED(hr) && composition_ == composition)
+    if (SUCCEEDED(hr))
     {
-        ClearCompositionState();
+        if (composition_ == composition)
+            ClearCompositionState();
+        if (inputMode_ == InputMode::EnglishSuggestion)
+        {
+            inputMode_ = InputMode::Chinese;
+            SetKeyboardOpenState();
+        }
     }
     composition->Release();
     return hr;
@@ -982,7 +1381,9 @@ HRESULT TextService::FinishComposition(TfEditCookie editCookie,
 
 void TextService::RefreshCandidates(TfEditCookie editCookie, ITfContext* context)
 {
-    candidates_ = LookupCandidates(scheme_, code_, g_module);
+    candidates_ = inputMode_ == InputMode::EnglishSuggestion
+        ? LookupEnglishCandidates(code_, g_module)
+        : LookupCandidates(scheme_, code_, g_module);
     const size_t pageCount = (candidates_.size() + kCandidatePageSize - 1) / kCandidatePageSize;
     if (pageCount == 0)
     {
@@ -1029,6 +1430,7 @@ void TextService::ShowCandidateWindow()
 {
     if (composition_ == nullptr)
     {
+        EndCandidateUIElement();
         candidateWindow_.Hide();
         return;
     }
@@ -1061,16 +1463,85 @@ void TextService::ShowCandidateWindow()
         }
     }
 
+    if (candidates_.empty())
+    {
+        EndCandidateUIElement();
+    }
+    else if (candidateUIElementId_ != TF_INVALID_UIELEMENTID)
+    {
+        HRESULT hr = candidateUIElement_->SetContent(candidates_, pageIndex_);
+        if (SUCCEEDED(hr))
+            hr = uiElementMgr_->UpdateUIElement(candidateUIElementId_);
+        CandidateUIDiag(L"update", hr, SUCCEEDED(hr) ? 1 : 0);
+        if (SUCCEEDED(hr))
+        {
+            candidateWindow_.Hide();
+            return;
+        }
+        EndCandidateUIElement();
+    }
+    else if (uiElementMgr_ != nullptr)
+    {
+        CandidateListUIElement* element = nullptr;
+        HRESULT hr = CandidateListUIElement::Create(documentMgr_,
+                                                    candidates_,
+                                                    pageIndex_,
+                                                    &element);
+        BOOL showOwnUI = TRUE;
+        DWORD elementId = TF_INVALID_UIELEMENTID;
+        if (SUCCEEDED(hr))
+            hr = uiElementMgr_->BeginUIElement(element, &showOwnUI, &elementId);
+
+        const bool hostDisplays = SUCCEEDED(hr) && !showOwnUI &&
+                                  elementId != TF_INVALID_UIELEMENTID;
+        CandidateUIDiag(L"begin", hr, hostDisplays ? 1 : 0);
+        if (hostDisplays)
+        {
+            candidateUIElement_ = element;
+            candidateUIElementId_ = elementId;
+            candidateWindow_.Hide();
+            return;
+        }
+
+        if (elementId != TF_INVALID_UIELEMENTID)
+        {
+            const HRESULT endHr = uiElementMgr_->EndUIElement(elementId);
+            CandidateUIDiag(L"begin-cleanup", endHr, 0);
+        }
+        if (element != nullptr)
+            element->Release();
+    }
+
     const size_t begin = std::min(pageIndex_ * kCandidatePageSize, candidates_.size());
     const size_t end = std::min(begin + kCandidatePageSize, candidates_.size());
     const std::vector<std::wstring> page(candidates_.begin() + begin, candidates_.begin() + end);
     const size_t pageCount = (candidates_.size() + kCandidatePageSize - 1) / kCandidatePageSize;
-    candidateWindow_.SetContent(code_, page, pageIndex_, pageCount, chinese_, scheme_);
+    candidateWindow_.SetContent(code_, page, pageIndex_, pageCount, inputMode_, scheme_);
     candidateWindow_.ShowAt(anchor_);
+    TV1_SEARCH_CANDIDATE_DIAG(L"candidate-show", anchor_, candidateWindow_.IsVisible());
+}
+
+void TextService::EndCandidateUIElement()
+{
+    CandidateListUIElement* element = candidateUIElement_;
+    const DWORD elementId = candidateUIElementId_;
+    candidateUIElement_ = nullptr;
+    candidateUIElementId_ = TF_INVALID_UIELEMENTID;
+
+    if (element != nullptr)
+        element->Show(FALSE);
+    if (uiElementMgr_ != nullptr && elementId != TF_INVALID_UIELEMENTID)
+    {
+        const HRESULT hr = uiElementMgr_->EndUIElement(elementId);
+        CandidateUIDiag(L"end", hr, 0);
+    }
+    if (element != nullptr)
+        element->Release();
 }
 
 void TextService::ClearCompositionState()
 {
+    EndCandidateUIElement();
     candidateWindow_.Hide();
     code_.clear();
     candidates_.clear();
@@ -1090,25 +1561,34 @@ void TextService::ClearCompositionState()
 
 STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie, ITfComposition* composition)
 {
+    TV1_SEARCH_DIAG(composition == composition_ ? L"composition-terminated-current" : L"composition-terminated-other");
     if (composition == composition_)
     {
         ClearCompositionState();
+        if (inputMode_ == InputMode::EnglishSuggestion)
+        {
+            inputMode_ = InputMode::Chinese;
+            SetKeyboardOpenState();
+        }
     }
     return S_OK;
 }
 
 STDMETHODIMP TextService::OnInitDocumentMgr(ITfDocumentMgr*)
 {
+    TV1_SEARCH_DIAG(L"document-init");
     return S_OK;
 }
 
 STDMETHODIMP TextService::OnUninitDocumentMgr(ITfDocumentMgr*)
 {
+    TV1_SEARCH_DIAG(L"document-uninit");
     return S_OK;
 }
 
 STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* focus, ITfDocumentMgr*)
 {
+    TV1_SEARCH_DIAG(focus == nullptr ? L"document-focus-none" : L"document-focus-present");
     if (composition_ != nullptr)
     {
         WriteDiagnostic(L"focus-cancel");
@@ -1120,13 +1600,16 @@ STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* focus, ITfDocumentMgr*)
 
 STDMETHODIMP TextService::OnPushContext(ITfContext*)
 {
+    TV1_SEARCH_DIAG(L"context-push");
     return S_OK;
 }
 
 STDMETHODIMP TextService::OnPopContext(ITfContext* context)
 {
+    TV1_SEARCH_DIAG(L"context-pop");
     if (context != nullptr && context == compositionContext_)
     {
+        TV1_SEARCH_DIAG(L"context-pop-current-composition");
         CancelComposition(false);
     }
     return S_OK;
@@ -1134,86 +1617,82 @@ STDMETHODIMP TextService::OnPopContext(ITfContext* context)
 
 void TextService::ToggleChineseMode()
 {
+    const bool switchToChinese = inputMode_ != InputMode::Chinese;
     CancelComposition(true);
-    chinese_ = !chinese_;
+    inputMode_ = switchToChinese ? InputMode::Chinese : InputMode::English;
     SetKeyboardOpenState();
-    WriteDiagnostic(chinese_ ? L"mode-chinese" : L"mode-english");
+    WriteDiagnostic(inputMode_ == InputMode::Chinese ? L"mode-chinese" : L"mode-english");
 }
 
 void TextService::ToggleScheme()
 {
     CancelComposition(true);
-    scheme_ = scheme_ == InputScheme::Pinyin ? InputScheme::Wubi86 : InputScheme::Pinyin;
-
-    HKEY key = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER,
-                        L"Software\\TV1TSF",
-                        0,
-                        nullptr,
-                        0,
-                        KEY_SET_VALUE,
-                        nullptr,
-                        &key,
-                        nullptr) == ERROR_SUCCESS)
-    {
-        const DWORD value = static_cast<DWORD>(scheme_);
-        RegSetValueExW(key, L"Scheme", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&value), sizeof(value));
-        RegCloseKey(key);
-    }
-    WriteDiagnostic(scheme_ == InputScheme::Pinyin ? L"scheme-pinyin" : L"scheme-wubi86");
-    candidateWindow_.SetContent({}, {}, 0, 0, chinese_, scheme_);
+    ApplyScheme(scheme_ == InputScheme::Pinyin ? InputScheme::Wubi86 : InputScheme::Pinyin);
+    candidateWindow_.SetContent({}, {}, 0, 0, inputMode_, scheme_);
     candidateWindow_.ShowAt(anchor_);
 }
 
 void TextService::ToggleLayout()
 {
-    vertical_ = !vertical_;
-    candidateWindow_.SetVertical(vertical_);
-
-    HKEY key = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER,
-                        L"Software\\TV1TSF",
-                        0,
-                        nullptr,
-                        0,
-                        KEY_SET_VALUE,
-                        nullptr,
-                        &key,
-                        nullptr) == ERROR_SUCCESS)
-    {
-        const DWORD value = vertical_ ? 1 : 0;
-        RegSetValueExW(key, L"Vertical", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&value), sizeof(value));
-        RegCloseKey(key);
-    }
-    WriteDiagnostic(vertical_ ? L"layout-vertical" : L"layout-horizontal");
+    ApplyVertical(!vertical_);
 }
 
 void TextService::TogglePunctuation()
 {
-    fullWidthPunctuation_ = !fullWidthPunctuation_;
-    candidateWindow_.SetFullWidthPunctuation(fullWidthPunctuation_);
-
-    HKEY key = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER,
-                        L"Software\\TV1TSF",
-                        0,
-                        nullptr,
-                        0,
-                        KEY_SET_VALUE,
-                        nullptr,
-                        &key,
-                        nullptr) == ERROR_SUCCESS)
-    {
-        const DWORD value = fullWidthPunctuation_ ? 1 : 0;
-        RegSetValueExW(key, L"FullWidthPunctuation", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&value), sizeof(value));
-        RegCloseKey(key);
-    }
-    WriteDiagnostic(fullWidthPunctuation_ ? L"punctuation-fullwidth" : L"punctuation-halfwidth");
+    ApplyFullWidthPunctuation(!fullWidthPunctuation_);
     if (composition_ == nullptr)
     {
-        candidateWindow_.SetContent({}, {}, 0, 0, chinese_, scheme_);
+        candidateWindow_.SetContent({}, {}, 0, 0, inputMode_, scheme_);
         candidateWindow_.ShowAt(anchor_);
     }
+}
+
+void TextService::ApplyScheme(InputScheme scheme)
+{
+    if (scheme_ == scheme)
+        return;
+
+    scheme_ = scheme;
+    WriteDwordSetting(L"Scheme", static_cast<DWORD>(scheme_));
+    WriteDiagnostic(scheme_ == InputScheme::Pinyin ? L"scheme-pinyin" : L"scheme-wubi86");
+}
+
+void TextService::ApplyVertical(bool vertical)
+{
+    if (vertical_ == vertical)
+        return;
+
+    vertical_ = vertical;
+    candidateWindow_.SetVertical(vertical_);
+    WriteDwordSetting(L"Vertical", vertical_ ? 1 : 0);
+    WriteDiagnostic(vertical_ ? L"layout-vertical" : L"layout-horizontal");
+}
+
+void TextService::ApplyFullWidthPunctuation(bool fullWidth)
+{
+    if (fullWidthPunctuation_ == fullWidth)
+        return;
+
+    fullWidthPunctuation_ = fullWidth;
+    candidateWindow_.SetFullWidthPunctuation(fullWidthPunctuation_);
+    WriteDwordSetting(L"FullWidthPunctuation", fullWidthPunctuation_ ? 1 : 0);
+    WriteDiagnostic(fullWidthPunctuation_ ? L"punctuation-fullwidth" : L"punctuation-halfwidth");
+}
+
+void TextService::ApplyCandidateFont(const std::wstring& family, int sizeTenths)
+{
+    if (!IsValidCandidateFont(family, sizeTenths) ||
+        (candidateFontFamily_ == family && candidateFontSizeTenths_ == sizeTenths))
+    {
+        return;
+    }
+
+    candidateFontFamily_ = family;
+    candidateFontSizeTenths_ = sizeTenths;
+    candidateWindow_.SetFont(candidateFontFamily_, candidateFontSizeTenths_);
+    WriteStringSetting(L"CandidateFontFace", candidateFontFamily_);
+    WriteDwordSetting(L"CandidateFontSizeTenths", static_cast<DWORD>(candidateFontSizeTenths_));
+    WriteDiagnostic(L"candidate-font-updated");
 }
 
 void TextService::SetKeyboardOpenState()
@@ -1237,7 +1716,7 @@ void TextService::SetKeyboardOpenState()
         VARIANT value;
         VariantInit(&value);
         value.vt = VT_BOOL;
-        value.boolVal = chinese_ ? VARIANT_TRUE : VARIANT_FALSE;
+        value.boolVal = inputMode_ == InputMode::Chinese ? VARIANT_TRUE : VARIANT_FALSE;
         compartment->SetValue(clientId_, &value);
         compartment->Release();
     }

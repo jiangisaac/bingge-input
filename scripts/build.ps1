@@ -1,7 +1,8 @@
 ﻿[CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Release'
+    [string]$Configuration = 'Release',
+    [string[]]$CMakeArgs = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,7 +35,7 @@ if (-not $cmake) {
 }
 
 $buildDir = Join-Path $root 'build'
-& $cmake -S $root -B $buildDir -G Ninja "-DCMAKE_BUILD_TYPE=$Configuration"
+& $cmake -S $root -B $buildDir -G Ninja "-DCMAKE_BUILD_TYPE=$Configuration" @CMakeArgs
 if ($LASTEXITCODE -ne 0) {
     throw "CMake 配置失败，退出码 $LASTEXITCODE"
 }

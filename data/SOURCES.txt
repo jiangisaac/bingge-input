@@ -16,11 +16,27 @@ TV1TSF 词库来源与转换说明
 - 作者/上游：acevery (Yu Yuwei)、王永民；Gong Chen 的 Rime 转换
 - 许可证：GNU Lesser General Public License 3.0，见 licenses/rime-wubi-LICENSE.txt
 
+英文
+- 项目：hermitdave/FrequencyWords
+- 固定仓库快照：525f9b560de45753a5ea01069454e72e9aa541c6
+- 文件最后修改提交：072bbed282316a23651aa7068c7173aa7898cf80（文件内容在固定快照中保持不变）
+- 源文件：content/2018/en/en_50k.txt
+- 原始 URL：https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/en/en_50k.txt
+- 原始文件 SHA-256：5351ff405b1126ef555791dd4d9798a48e3e9a501a9fc481a9da957752cfb458
+- 数据基础：OpenSubtitles 2018 分词语料，由 OPUS 提供：https://opus.nlpl.eu/OpenSubtitles2018.php
+- 作者/上游：Hermit Dave、FrequencyWords 贡献者及 OpenSubtitles 2018 / OPUS 上游贡献者
+- 许可证：上游代码为 MIT（未导入生成器代码）；英文词频内容及本地改编采用 Creative Commons Attribution-ShareAlike 4.0 International（CC BY-SA 4.0），完整文本见 licenses/frequencywords-CC-BY-SA-4.0.txt，署名与相同方式共享说明见 licenses/NOTICE.txt。
+- 许可核验：固定快照的 README.md 明示“MIT License for code”和“CC-by-sa-4.0 for content”，LICENSE 为 Hermit Dave 的 MIT 许可文本。
+
 本地修改与转换
 - tools/prepare_dictionaries.py 仅做格式转换、编码规范化、去重和权重排序，不手工修改候选语义。
 - 拼音音节之间空白被移除，保留不超过 32 个 ASCII 小写字母的全拼编码。
 - 五笔仅保留不超过四码的 ASCII 小写字母编码。
-- 重复“编码＋候选”保留最大权重；TSV 按编码、权重降序和文本排序。
-- 生成后的 pinyin.tsv、wubi86.tsv 是可直接修改的词库源数据，与本转换脚本共同提供。
-- 转换示例：
+- 英文仅保留完全由 ASCII 小写字母 a-z 组成的单词，编码和文本均为该单词，权重使用上游真实出现次数；重复项保留最大权重。
+- 重复“编码＋候选”保留最大权重；拼音和五笔 TSV 按编码、权重降序和文本排序，英文 TSV 按权重降序、编码升序排序。
+- 生成后的 pinyin.tsv、wubi86.tsv、english.tsv 是可直接修改的词库源数据，与本转换脚本共同提供。
+- YAML 转 TSV 示例：
   python tools/prepare_dictionaries.py --pinyin pinyin_simp.dict.yaml --wubi wubi86.dict.yaml --output-dir data
+- TSV 预编译为带格式版本的只读二进制示例：
+  python tools/prepare_dictionaries.py --emit-bin --input-dir data --output-dir build/generated/dictionaries
+- pinyin.bin、wubi86.bin、english.bin 仅重排索引并保存既有编码、词条和权重，不新增或修改候选语义，不改变上述数据来源与许可证。

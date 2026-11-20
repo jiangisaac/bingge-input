@@ -17,6 +17,27 @@ This product includes modified data derived from:
    Modifications: entries limited to ASCII Wubi86 codes of at most four letters;
    duplicate entries merged by maximum weight; entries sorted for lookup.
 
+3. FrequencyWords / OpenSubtitles 2018 English frequency list
+   Upstream author: Hermit Dave and FrequencyWords contributors. The source
+   frequency list was generated from the OpenSubtitles 2018 tokenized corpus
+   made available through OPUS by the OpenSubtitles / OPUS contributors.
+   Source: https://github.com/hermitdave/FrequencyWords/tree/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/en/en_50k.txt
+   Original data: https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/en/en_50k.txt
+   Original SHA-256: 5351ff405b1126ef555791dd4d9798a48e3e9a501a9fc481a9da957752cfb458
+   Upstream code is MIT licensed, copyright (c) 2016 Hermit Dave; no upstream
+   generator code is included. The imported content and the adapted english.tsv
+   and english.bin data are licensed under Creative Commons
+   Attribution-ShareAlike 4.0 International (CC BY-SA 4.0). See
+   frequencywords-CC-BY-SA-4.0.txt and
+   https://creativecommons.org/licenses/by-sa/4.0/.
+   Modifications: retained only words consisting entirely of lowercase ASCII
+   a-z; used each word as both code and text; retained its corpus occurrence
+   count as weight; merged duplicates by maximum weight; sorted by descending
+   weight and ascending code; compiled the same entries into binary form.
+   Attribution, this modification notice, and the CC BY-SA 4.0 license must be
+   preserved when sharing these data. Adapted data must be shared under the
+   same license, without additional restrictions.
+
 The corresponding modifiable TSV data and the conversion script are supplied
 with the installation package under data/ and tools/. The TV1TSF application
 does not restrict modification or replacement of these dictionary data.

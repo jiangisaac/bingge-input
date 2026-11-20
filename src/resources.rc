@@ -1,5 +1,6 @@
 #include <windows.h>
 #include "resource.h"
 
-IDR_PINYIN_DICTIONARY RCDATA "..\\data\\pinyin.tsv"
-IDR_WUBI86_DICTIONARY RCDATA "..\\data\\wubi86.tsv"
+IDR_PINYIN_DICTIONARY RCDATA "pinyin.bin"
+IDR_WUBI86_DICTIONARY RCDATA "wubi86.bin"
+IDR_ENGLISH_DICTIONARY RCDATA "english.bin"

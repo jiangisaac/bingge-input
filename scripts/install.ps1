@@ -2,7 +2,7 @@
 param(
     [string]$DllPath,
     [ValidatePattern('^[A-Za-z0-9._-]+$')]
-    [string]$Version = 'v11'
+    [string]$Version
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,6 +18,18 @@ if (-not $DllPath) {
     }
 }
 $DllPath = (Resolve-Path $DllPath).Path
+if (-not $Version) {
+    $fileVersion = (Get-Item -LiteralPath $DllPath).VersionInfo.FileVersion
+    if ([string]::IsNullOrWhiteSpace($fileVersion)) {
+        throw "无法从 $DllPath 读取文件版本，请显式指定 -Version。"
+    }
+    $major = $fileVersion.Split('.')[0]
+    if ($major -notmatch '^\d+$') {
+        throw "DLL 文件版本 $fileVersion 无法推导安装版本，请显式指定 -Version。"
+    }
+    $Version = "v$major"
+}
+Write-Verbose "安装版本：$Version"
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -43,7 +55,7 @@ if ($shouldCopy) {
         Copy-Item -LiteralPath $DllPath -Destination $target -Force -ErrorAction Stop
     }
     catch {
-        throw "无法写入 $target。新版 DLL 必须使用新的版本名，例如：.\install.ps1 -Version v12。详细信息：$($_.Exception.Message)"
+        throw "无法写入 $target。新版 DLL 必须使用新的版本名，例如：.\install.ps1 -Version v14。详细信息：$($_.Exception.Message)"
     }
 }
 

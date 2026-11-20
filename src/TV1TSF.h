@@ -9,6 +9,7 @@
 
 #include <windows.h>
 #include <msctf.h>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,8 @@ EXTERN_C const GUID GUID_TV1SchemeKey;
 EXTERN_C const GUID GUID_TV1PunctuationKey;
 
 constexpr UINT kCandidatePageSize = 5;
+constexpr wchar_t kDefaultCandidateFontFace[] = L"Microsoft YaHei UI";
+constexpr int kDefaultCandidateFontSizeTenths = 135;
 
 enum class InputScheme
 {
@@ -29,9 +32,29 @@ enum class InputScheme
     Wubi86,
 };
 
+enum class InputMode
+{
+    Chinese,
+    English,
+    EnglishSuggestion,
+};
+
 std::vector<std::wstring> LookupCandidates(InputScheme scheme,
                                            const std::wstring& code,
                                            HMODULE resourceModule);
+std::vector<std::wstring> LookupEnglishCandidates(const std::wstring& code,
+                                                  HMODULE resourceModule);
+#ifdef TV1TSF_DICTIONARY_TESTING
+std::vector<std::wstring> LookupCandidatesFromMemoryForTest(InputScheme scheme,
+                                                            const std::wstring& code,
+                                                            const void* pinyinData,
+                                                            size_t pinyinSize,
+                                                            const void* wubiData,
+                                                            size_t wubiSize);
+std::vector<std::wstring> LookupEnglishCandidatesFromMemoryForTest(const std::wstring& code,
+                                                                   const void* englishData,
+                                                                   size_t englishSize);
+#endif
 void WriteDiagnostic(const wchar_t* eventName) noexcept;
 
 class CandidateWindow
@@ -44,15 +67,17 @@ public:
     CandidateWindow& operator=(const CandidateWindow&) = delete;
 
     bool Create();
+    void SetSettingsHandler(std::function<void()> handler);
     void Destroy();
     void SetContent(const std::wstring& code,
                     const std::vector<std::wstring>& pageCandidates,
                     size_t pageIndex,
                     size_t pageCount,
-                    bool chinese,
+                    InputMode mode,
                     InputScheme scheme);
     void SetVertical(bool vertical);
     void SetFullWidthPunctuation(bool fullWidth);
+    void SetFont(const std::wstring& family, int sizeTenths);
     bool IsVertical() const noexcept { return vertical_; }
     void ShowAt(const RECT& anchor);
     void Hide();
@@ -62,22 +87,29 @@ private:
     HWND hwnd_ = nullptr;
     HFONT font_ = nullptr;
     HFONT smallFont_ = nullptr;
+    std::function<void()> settingsHandler_;
+    bool settingsButtonPressed_ = false;
     std::wstring code_;
     std::vector<std::wstring> candidates_;
     size_t pageIndex_ = 0;
     size_t pageCount_ = 0;
-    bool chinese_ = true;
+    InputMode inputMode_ = InputMode::Chinese;
     InputScheme scheme_ = InputScheme::Pinyin;
     bool vertical_ = false;
     bool fullWidthPunctuation_ = true;
+    std::wstring fontFamily_ = kDefaultCandidateFontFace;
+    int fontSizeTenths_ = kDefaultCandidateFontSizeTenths;
     int dpi_ = 96;
 
     int Scale(int value) const noexcept { return MulDiv(value, dpi_, 96); }
     void RecreateFonts();
     void Paint();
+    bool IsSettingsButtonAt(POINT point);
     void SizeToContent(const RECT& anchor);
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 };
+
+class CandidateListUIElement;
 
 class TextService : public ITfTextInputProcessorEx,
                     public ITfKeyEventSink,
@@ -139,22 +171,28 @@ private:
     ITfContext* compositionContext_ = nullptr;
     DWORD threadSinkCookie_ = TF_INVALID_COOKIE;
     ITfComposition* composition_ = nullptr;
+    ITfUIElementMgr* uiElementMgr_ = nullptr;
+    CandidateListUIElement* candidateUIElement_ = nullptr;
+    DWORD candidateUIElementId_ = TF_INVALID_UIELEMENTID;
     CandidateWindow candidateWindow_;
     std::wstring code_;
     std::vector<std::wstring> candidates_;
     size_t pageIndex_ = 0;
     RECT anchor_{};
     bool hasAnchor_ = false;
-    bool chinese_ = true;
+    InputMode inputMode_ = InputMode::Chinese;
     InputScheme scheme_ = InputScheme::Pinyin;
     bool vertical_ = false;
     bool fullWidthPunctuation_ = true;
+    std::wstring candidateFontFamily_ = kDefaultCandidateFontFace;
+    int candidateFontSizeTenths_ = kDefaultCandidateFontSizeTenths;
     bool capsLockEnglish_ = false;
-    bool chineseBeforeCapsLock_ = true;
+    InputMode modeBeforeCapsLock_ = InputMode::Chinese;
     bool shiftPressed_ = false;
     bool shiftChordUsed_ = false;
     bool activated_ = false;
     bool keyEventSinkAdvised_ = false;
+    HWND settingsDialog_ = nullptr;
 
     HRESULT ActivateInternal(ITfThreadMgr* threadMgr, TfClientId clientId);
     void AttachDocument(ITfDocumentMgr* documentMgr);
@@ -169,14 +207,25 @@ private:
                               bool cancel);
     HRESULT InsertTextAtSelection(TfEditCookie editCookie, ITfContext* context, const wchar_t* text);
     HRESULT ProcessKey(TfEditCookie editCookie, ITfContext* context, WPARAM wParam, BOOL* eaten);
+    HRESULT ProcessEnglishSuggestionKey(TfEditCookie editCookie,
+                                        ITfContext* context,
+                                        WPARAM wParam,
+                                        BOOL* eaten);
     void RefreshCandidates(TfEditCookie editCookie, ITfContext* context);
     void UpdateAnchor(TfEditCookie editCookie, ITfContext* context);
     void ShowCandidateWindow();
+    void EndCandidateUIElement();
     void ClearCompositionState();
     void ToggleChineseMode();
     void ToggleScheme();
     void ToggleLayout();
     void TogglePunctuation();
+    void ApplyScheme(InputScheme scheme);
+    void ApplyVertical(bool vertical);
+    void ApplyFullWidthPunctuation(bool fullWidth);
+    void ApplyCandidateFont(const std::wstring& family, int sizeTenths);
+    void OpenSettingsDialog();
+    static INT_PTR CALLBACK SettingsDialogProc(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam);
     void SetKeyboardOpenState();
 };
 
