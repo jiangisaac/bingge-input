@@ -1,6 +1,8 @@
 #include <windows.h>
 #include "resource.h"
 
+IDI_APP ICON "app.ico"
+
 IDR_PINYIN_DICTIONARY RCDATA "pinyin.bin"
 IDR_WUBI86_DICTIONARY RCDATA "wubi86.bin"
 IDR_ENGLISH_DICTIONARY RCDATA "english.bin"

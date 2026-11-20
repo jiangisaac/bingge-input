@@ -1,5 +1,7 @@
 #pragma once
 
+#define IDI_APP 100
+
 #define IDR_PINYIN_DICTIONARY 101
 #define IDR_WUBI86_DICTIONARY 102
 #define IDR_ENGLISH_DICTIONARY 103

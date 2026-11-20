@@ -180,6 +180,8 @@ private:
     size_t pageIndex_ = 0;
     RECT anchor_{};
     bool hasAnchor_ = false;
+    RECT screenExtAnchor_{};
+    bool hasScreenExtAnchor_ = false;
     InputMode inputMode_ = InputMode::Chinese;
     InputScheme scheme_ = InputScheme::Pinyin;
     bool vertical_ = false;

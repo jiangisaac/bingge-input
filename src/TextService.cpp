@@ -1400,6 +1400,7 @@ void TextService::RefreshCandidates(TfEditCookie editCookie, ITfContext* context
 void TextService::UpdateAnchor(TfEditCookie editCookie, ITfContext* context)
 {
     hasAnchor_ = false;
+    hasScreenExtAnchor_ = false;
     if (context == nullptr || composition_ == nullptr)
     {
         return;
@@ -1416,12 +1417,30 @@ void TextService::UpdateAnchor(TfEditCookie editCookie, ITfContext* context)
     {
         RECT rect = {};
         BOOL clipped = FALSE;
-        if (SUCCEEDED(view->GetTextExt(editCookie, range, &rect, &clipped)))
+        const HRESULT textExtHr = view->GetTextExt(editCookie, range, &rect, &clipped);
+        TV1_SEARCH_DIAG(L"anchor-textext", textExtHr);
+        if (SUCCEEDED(textExtHr))
         {
             anchor_ = rect;
             hasAnchor_ = true;
         }
         range->Release();
+    }
+
+    // GetTextExt 失败时（部分浏览器地址栏不提供组合文本坐标），
+    // 记录 GetScreenExt 的编辑区矩形作为次级锚点候选，
+    // 供 ShowCandidateWindow 在插入符位置也不可用时使用。
+    RECT screenRect = {};
+    const HRESULT screenExtHr = view->GetScreenExt(&screenRect);
+    TV1_SEARCH_DIAG(L"anchor-screenext", screenExtHr);
+    if (SUCCEEDED(screenExtHr) &&
+        screenRect.right > screenRect.left && screenRect.bottom > screenRect.top)
+    {
+        screenExtAnchor_.left = screenRect.left;
+        screenExtAnchor_.top = screenRect.bottom;
+        screenExtAnchor_.right = screenRect.left;
+        screenExtAnchor_.bottom = screenRect.bottom;
+        hasScreenExtAnchor_ = true;
     }
     view->Release();
 }
@@ -1446,6 +1465,12 @@ void TextService::ShowCandidateWindow()
             ClientToScreen(threadInfo.hwndCaret, reinterpret_cast<POINT*>(&anchor_.right));
             hasAnchor_ = true;
         }
+    }
+
+    if (!hasAnchor_ && hasScreenExtAnchor_)
+    {
+        anchor_ = screenExtAnchor_;
+        hasAnchor_ = true;
     }
 
     if (!hasAnchor_)
@@ -1547,6 +1572,7 @@ void TextService::ClearCompositionState()
     candidates_.clear();
     pageIndex_ = 0;
     hasAnchor_ = false;
+    hasScreenExtAnchor_ = false;
     if (composition_ != nullptr)
     {
         composition_->Release();

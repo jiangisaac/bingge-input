@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(TV1TSF VERSION 14.0.0.0 LANGUAGES CXX RC)
+project(TV1TSF VERSION 14.1.0.0 LANGUAGES CXX RC)
 
 if(NOT WIN32)
     message(FATAL_ERROR "TV1TSF only supports Windows")
@@ -49,6 +49,12 @@ add_library(TV1TSF SHARED
 add_dependencies(TV1TSF GenerateDictionaries)
 target_include_directories(TV1TSF PRIVATE src "${TV1_DICTIONARY_DIR}")
 target_compile_features(TV1TSF PRIVATE cxx_std_17)
+
+option(TV1TSF_SEARCH_DIAGNOSTICS "Enable SearchHost/host key and candidate diagnostics" OFF)
+if(TV1TSF_SEARCH_DIAGNOSTICS)
+    target_compile_definitions(TV1TSF PRIVATE TV1TSF_SEARCH_DIAGNOSTICS=1)
+endif()
+
 target_compile_definitions(TV1TSF PRIVATE
     WIN32_LEAN_AND_MEAN
     NOMINMAX
