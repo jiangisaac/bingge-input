@@ -69,6 +69,52 @@ void UpdateCandidateFontLabel(HWND dialog, const std::wstring& family, int sizeT
     SetDlgItemTextW(dialog, IDC_CANDIDATE_FONT_VALUE, label.c_str());
 }
 
+// ChooseColor 对话框的自定义颜色板；进程内静态保存，重开设置窗口时保留最近选择。
+COLORREF g_customColors[16] = {
+    RGB(255, 255, 255), RGB(0, 0, 0),         RGB(28, 31, 38),   RGB(245, 246, 250),
+    RGB(217, 83, 79),  RGB(235, 152, 78),     RGB(254, 195, 46), RGB(163, 196, 79),
+    RGB(75, 152, 207), RGB(145, 145, 232),    RGB(240, 98, 146), RGB(105, 211, 164),
+    RGB(240, 240, 240), RGB(200, 200, 204),  RGB(128, 128, 132), RGB(64, 64, 68),
+};
+
+bool ChooseCandidateColor(HWND dialog, COLORREF initial, COLORREF* chosen)
+{
+    CHOOSECOLORW chooseColor{};
+    chooseColor.lStructSize = sizeof(chooseColor);
+    chooseColor.hwndOwner = dialog;
+    chooseColor.rgbResult = initial;
+    chooseColor.lpCustColors = g_customColors;
+    chooseColor.Flags = CC_FULLOPEN | CC_RGBINIT | CC_SOLIDCOLOR;
+    if (!ChooseColorW(&chooseColor))
+        return false;
+    if (chosen != nullptr)
+        *chosen = chooseColor.rgbResult;
+    return true;
+}
+
+void DrawColorSwatch(const DRAWITEMSTRUCT* item, COLORREF color, const wchar_t* label)
+{
+    if (item == nullptr || item->hDC == nullptr)
+        return;
+    HBRUSH brush = CreateSolidBrush(color);
+    if (brush != nullptr)
+    {
+        FillRect(item->hDC, &item->rcItem, brush);
+        DeleteObject(brush);
+    }
+    const int red = GetRValue(color);
+    const int green = GetGValue(color);
+    const int blue = GetBValue(color);
+    const bool dark = (red * 30 + green * 59 + blue * 11) < 12800;
+    SetTextColor(item->hDC, dark ? RGB(255, 255, 255) : RGB(20, 22, 28));
+    SetBkMode(item->hDC, TRANSPARENT);
+    wchar_t text[48] = {};
+    swprintf_s(text, L"%s #%02X%02X%02X", label, red, green, blue);
+    RECT rect = item->rcItem;
+    DrawTextW(item->hDC, text, -1, &rect,
+              DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+}
+
 void SetAboutInfo(HWND dialog)
 {
     const std::wstring path = GetCurrentModulePath();
@@ -197,6 +243,26 @@ INT_PTR CALLBACK TextService::SettingsDialogProc(HWND dialog,
                 }
                 return TRUE;
             }
+            case IDC_CANDIDATE_TEXT_COLOR:
+            {
+                COLORREF chosen = 0;
+                if (ChooseCandidateColor(dialog, self->candidateTextColor_, &chosen))
+                {
+                    self->ApplyCandidateColors(chosen, self->candidateBackColor_);
+                    InvalidateRect(dialog, nullptr, TRUE);
+                }
+                return TRUE;
+            }
+            case IDC_CANDIDATE_BACK_COLOR:
+            {
+                COLORREF chosen = 0;
+                if (ChooseCandidateColor(dialog, self->candidateBackColor_, &chosen))
+                {
+                    self->ApplyCandidateColors(self->candidateTextColor_, chosen);
+                    InvalidateRect(dialog, nullptr, TRUE);
+                }
+                return TRUE;
+            }
             default:
                 break;
             }
@@ -204,6 +270,23 @@ INT_PTR CALLBACK TextService::SettingsDialogProc(HWND dialog,
         if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL)
         {
             EndDialog(dialog, LOWORD(wParam));
+            return TRUE;
+        }
+        break;
+
+    case WM_DRAWITEM:
+        if (self != nullptr && wParam == IDC_CANDIDATE_TEXT_COLOR_VALUE)
+        {
+            DrawColorSwatch(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam),
+                            self->candidateTextColor_,
+                            L"文字");
+            return TRUE;
+        }
+        if (self != nullptr && wParam == IDC_CANDIDATE_BACK_COLOR_VALUE)
+        {
+            DrawColorSwatch(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam),
+                            self->candidateBackColor_,
+                            L"背景");
             return TRUE;
         }
         break;

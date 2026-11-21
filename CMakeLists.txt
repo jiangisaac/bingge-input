@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(TV1TSF VERSION 14.1.0.0 LANGUAGES CXX RC)
+project(TV1TSF VERSION 14.2.0.0 LANGUAGES CXX RC)
 
 if(NOT WIN32)
     message(FATAL_ERROR "TV1TSF only supports Windows")
@@ -47,6 +47,9 @@ add_library(TV1TSF SHARED
 )
 
 add_dependencies(TV1TSF GenerateDictionaries)
+# 词典 .bin 以 RCDATA 嵌入 resources.rc；显式声明依赖，词库更新后强制重编 RC，避免 DLL 内嵌旧词典。
+set_source_files_properties(src/resources.rc PROPERTIES
+    OBJECT_DEPENDS "${TV1_PINYIN_BIN};${TV1_WUBI86_BIN};${TV1_ENGLISH_BIN}")
 target_include_directories(TV1TSF PRIVATE src "${TV1_DICTIONARY_DIR}")
 target_compile_features(TV1TSF PRIVATE cxx_std_17)
 

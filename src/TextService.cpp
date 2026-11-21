@@ -221,7 +221,8 @@ wchar_t MapFullWidthPunctuation(WPARAM wParam)
     case VK_OEM_2: return L'／';
     case VK_OEM_3: return L'｀';
     case VK_OEM_4: return L'［';
-    case VK_OEM_5: return L'＼';
+    // 中文输入法惯例：全角标点模式下反斜杠输出顿号。
+    case VK_OEM_5: return L'、';
     case VK_OEM_6: return L'］';
     case VK_OEM_7: return L'＇';
     case VK_OEM_COMMA: return L'，';
@@ -533,7 +534,37 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* threadMgr, TfClientId client
     {
         candidateFontSizeTenths_ = static_cast<int>(fontSizeTenths);
     }
+
+    candidateTextColor_ = kDefaultCandidateTextColor;
+    DWORD textColor = kDefaultCandidateTextColor;
+    size = sizeof(textColor);
+    if (RegGetValueW(HKEY_CURRENT_USER,
+                     L"Software\\TV1TSF",
+                     L"CandidateTextColor",
+                     RRF_RT_REG_DWORD,
+                     nullptr,
+                     &textColor,
+                     &size) == ERROR_SUCCESS)
+    {
+        candidateTextColor_ = static_cast<COLORREF>(textColor);
+    }
+
+    candidateBackColor_ = kDefaultCandidateBackColor;
+    DWORD backColor = kDefaultCandidateBackColor;
+    size = sizeof(backColor);
+    if (RegGetValueW(HKEY_CURRENT_USER,
+                     L"Software\\TV1TSF",
+                     L"CandidateBackColor",
+                     RRF_RT_REG_DWORD,
+                     nullptr,
+                     &backColor,
+                     &size) == ERROR_SUCCESS)
+    {
+        candidateBackColor_ = static_cast<COLORREF>(backColor);
+    }
+
     candidateWindow_.SetFont(candidateFontFamily_, candidateFontSizeTenths_);
+    candidateWindow_.SetColors(candidateTextColor_, candidateBackColor_);
     candidateWindow_.SetSettingsHandler([this]() { OpenSettingsDialog(); });
     const bool candidateCreated = candidateWindow_.Create();
     (void)candidateCreated;
@@ -1719,6 +1750,19 @@ void TextService::ApplyCandidateFont(const std::wstring& family, int sizeTenths)
     WriteStringSetting(L"CandidateFontFace", candidateFontFamily_);
     WriteDwordSetting(L"CandidateFontSizeTenths", static_cast<DWORD>(candidateFontSizeTenths_));
     WriteDiagnostic(L"candidate-font-updated");
+}
+
+void TextService::ApplyCandidateColors(COLORREF textColor, COLORREF backColor)
+{
+    if (candidateTextColor_ == textColor && candidateBackColor_ == backColor)
+        return;
+
+    candidateTextColor_ = textColor;
+    candidateBackColor_ = backColor;
+    candidateWindow_.SetColors(textColor, backColor);
+    WriteDwordSetting(L"CandidateTextColor", static_cast<DWORD>(textColor));
+    WriteDwordSetting(L"CandidateBackColor", static_cast<DWORD>(backColor));
+    WriteDiagnostic(L"candidate-color-updated");
 }
 
 void TextService::SetKeyboardOpenState()

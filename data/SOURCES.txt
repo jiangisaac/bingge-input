@@ -40,3 +40,8 @@ TV1TSF 词库来源与转换说明
 - TSV 预编译为带格式版本的只读二进制示例：
   python tools/prepare_dictionaries.py --emit-bin --input-dir data --output-dir build/generated/dictionaries
 - pinyin.bin、wubi86.bin、english.bin 仅重排索引并保存既有编码、词条和权重，不新增或修改候选语义，不改变上述数据来源与许可证。
+
+增补词（本地维护）
+- pinyin.tsv 中以下词条为本项目增补，非上游词库内容：
+  顿号(dunhao)、冒号(maohao)、书名号(shuminghao)、间隔号(jiangehao)、连接号(lianjiehao)、破折号(pozhehao)
+- 增补原因：上游 rime-pinyin-simp 词表缺少中文标点名称类常用词，全拼输入时无候选。

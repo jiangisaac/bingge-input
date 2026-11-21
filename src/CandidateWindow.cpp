@@ -150,6 +150,38 @@ void DrawSingleLine(HDC dc, const std::wstring& text, RECT rect, UINT extraFlags
               DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS | extraFlags);
 }
 
+// 按背景亮度自动适配次要元素（次要文字、分隔线、边框、设置按钮）的深浅，
+// 保证用户自定义任何背景色时窗口内容都可读。
+struct ColorScheme
+{
+    COLORREF text;
+    COLORREF secondaryText;
+    COLORREF statusText;
+    COLORREF separator;
+    COLORREF settingsFill;
+    COLORREF settingsPressed;
+    COLORREF settingsText;
+    COLORREF border;
+};
+
+ColorScheme MakeColorScheme(COLORREF textColor, COLORREF backColor) noexcept
+{
+    const int r = GetRValue(backColor);
+    const int g = GetGValue(backColor);
+    const int b = GetBValue(backColor);
+    const bool dark = (r * 30 + g * 59 + b * 11) < 12800;
+    ColorScheme scheme;
+    scheme.text = textColor;
+    scheme.secondaryText = dark ? RGB(173, 181, 194) : RGB(96, 102, 116);
+    scheme.statusText = dark ? RGB(105, 211, 164) : RGB(0, 138, 92);
+    scheme.separator = dark ? RGB(74, 80, 94) : RGB(206, 210, 220);
+    scheme.settingsFill = dark ? RGB(48, 53, 64) : RGB(224, 228, 236);
+    scheme.settingsPressed = dark ? RGB(76, 85, 102) : RGB(190, 196, 208);
+    scheme.settingsText = dark ? RGB(225, 231, 241) : RGB(40, 44, 56);
+    scheme.border = dark ? RGB(91, 99, 116) : RGB(150, 156, 170);
+    return scheme;
+}
+
 RECT GetSettingsButtonRect(const RECT& client, const LayoutInfo& layout) noexcept
 {
     const int right = (std::max)(layout.margin, static_cast<int>(client.right) - layout.margin);
@@ -317,13 +349,22 @@ void CandidateWindow::SetFont(const std::wstring& family, int sizeTenths)
     }
 }
 
+void CandidateWindow::SetColors(COLORREF textColor, COLORREF backColor)
+{
+    if (textColor_ == textColor && backColor_ == backColor)
+        return;
+    textColor_ = textColor;
+    backColor_ = backColor;
+    if (hwnd_ != nullptr && IsWindow(hwnd_))
+        InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 void CandidateWindow::ShowAt(const RECT& anchor)
 {
     if (!Create())
         return;
 
-    SizeToContent(anchor);
-    ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+    SizeToContent(anchor);    ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
     UpdateWindow(hwnd_);
 }
 
@@ -500,7 +541,8 @@ void CandidateWindow::Paint()
                                           font_,
                                           smallFont_);
 
-    FillSolidRect(dc, client, RGB(28, 31, 38));
+    const ColorScheme colors = MakeColorScheme(textColor_, backColor_);
+    FillSolidRect(dc, client, backColor_);
     SetBkMode(dc, TRANSPARENT);
 
     HGDIOBJ oldFont = SelectObject(dc, font_ ? font_ : GetStockObject(DEFAULT_GUI_FONT));
@@ -509,7 +551,7 @@ void CandidateWindow::Paint()
                   y,
                   layout.margin + layout.codeWidth,
                   y + layout.headerHeight};
-    SetTextColor(dc, RGB(235, 238, 245));
+    SetTextColor(dc, colors.text);
     DrawSingleLine(dc, layout.codeText, codeRect);
 
     const int candidatesTop = y + layout.headerHeight + layout.separator;
@@ -524,13 +566,13 @@ void CandidateWindow::Paint()
                           itemTop,
                           contentRight,
                           itemTop + layout.itemHeight};
-            SetTextColor(dc, RGB(245, 246, 250));
+            SetTextColor(dc, colors.text);
             DrawSingleLine(dc, layout.items[i], itemRect);
             itemTop += layout.itemHeight;
             if (i + 1 < layout.items.size())
             {
                 RECT separator{layout.margin, itemTop - layout.separator, contentRight, itemTop};
-                FillSolidRect(dc, separator, RGB(62, 67, 79));
+                FillSolidRect(dc, separator, colors.separator);
             }
         }
     }
@@ -542,17 +584,17 @@ void CandidateWindow::Paint()
             if (i != 0)
             {
                 RECT separator{x + layout.gap / 2 - layout.separator,
-                               candidatesTop + Scale(4),
-                               x + layout.gap / 2,
-                               candidatesBottom - Scale(4)};
-                FillSolidRect(dc, separator, RGB(74, 80, 94));
+                                candidatesTop + Scale(4),
+                                x + layout.gap / 2,
+                                candidatesBottom - Scale(4)};
+                FillSolidRect(dc, separator, colors.separator);
                 x += layout.gap;
             }
             RECT itemRect{x + Scale(5),
                           candidatesTop,
                           x + layout.itemWidths[i] - Scale(5),
                           candidatesBottom};
-            SetTextColor(dc, RGB(245, 246, 250));
+            SetTextColor(dc, colors.text);
             DrawSingleLine(dc, layout.items[i], itemRect);
             x += layout.itemWidths[i];
         }
@@ -563,7 +605,7 @@ void CandidateWindow::Paint()
                     y,
                     codeRect.right + layout.gap + layout.statusWidth,
                     y + layout.headerHeight};
-    SetTextColor(dc, inputMode_ == InputMode::Chinese ? RGB(105, 211, 164) : RGB(176, 181, 194));
+    SetTextColor(dc, inputMode_ == InputMode::Chinese ? colors.statusText : colors.secondaryText);
     DrawSingleLine(dc, layout.statusText, statusRect);
 
     const RECT settingsRect = GetSettingsButtonRect(client, layout);
@@ -571,35 +613,35 @@ void CandidateWindow::Paint()
                   y,
                   settingsRect.left - layout.gap,
                   y + layout.headerHeight};
-    SetTextColor(dc, RGB(173, 181, 197));
+    SetTextColor(dc, colors.secondaryText);
     DrawSingleLine(dc, layout.pageText, pageRect, DT_RIGHT);
 
     FillSolidRect(dc,
                   settingsRect,
-                  settingsButtonPressed_ ? RGB(76, 85, 102) : RGB(48, 53, 64));
-    SetTextColor(dc, RGB(225, 231, 241));
+                  settingsButtonPressed_ ? colors.settingsPressed : colors.settingsFill);
+    SetTextColor(dc, colors.settingsText);
     DrawSingleLine(dc, L"设置", settingsRect, DT_CENTER);
 
     RECT headerSeparator{layout.margin,
                          y + layout.headerHeight,
                          contentRight,
                          y + layout.headerHeight + layout.separator};
-    FillSolidRect(dc, headerSeparator, RGB(74, 80, 94));
+    FillSolidRect(dc, headerSeparator, colors.separator);
 
     RECT footerSeparator{layout.margin,
                          candidatesBottom,
                          contentRight,
                          candidatesBottom + layout.separator};
-    FillSolidRect(dc, footerSeparator, RGB(74, 80, 94));
+    FillSolidRect(dc, footerSeparator, colors.separator);
     RECT hintRect{layout.margin,
                   candidatesBottom + layout.separator,
                   contentRight,
                   candidatesBottom + layout.separator + layout.footerHeight};
-    SetTextColor(dc, RGB(174, 181, 194));
+    SetTextColor(dc, colors.secondaryText);
     DrawSingleLine(dc, kOperationHint, hintRect);
     SelectObject(dc, oldFont);
 
-    HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(91, 99, 116));
+    HPEN borderPen = CreatePen(PS_SOLID, 1, colors.border);
     if (borderPen)
     {
         HGDIOBJ oldPen = SelectObject(dc, borderPen);

@@ -25,6 +25,8 @@ EXTERN_C const GUID GUID_TV1PunctuationKey;
 constexpr UINT kCandidatePageSize = 5;
 constexpr wchar_t kDefaultCandidateFontFace[] = L"Microsoft YaHei UI";
 constexpr int kDefaultCandidateFontSizeTenths = 135;
+constexpr COLORREF kDefaultCandidateTextColor = RGB(245, 246, 250);
+constexpr COLORREF kDefaultCandidateBackColor = RGB(28, 31, 38);
 
 enum class InputScheme
 {
@@ -78,6 +80,7 @@ public:
     void SetVertical(bool vertical);
     void SetFullWidthPunctuation(bool fullWidth);
     void SetFont(const std::wstring& family, int sizeTenths);
+    void SetColors(COLORREF textColor, COLORREF backColor);
     bool IsVertical() const noexcept { return vertical_; }
     void ShowAt(const RECT& anchor);
     void Hide();
@@ -99,6 +102,8 @@ private:
     bool fullWidthPunctuation_ = true;
     std::wstring fontFamily_ = kDefaultCandidateFontFace;
     int fontSizeTenths_ = kDefaultCandidateFontSizeTenths;
+    COLORREF textColor_ = kDefaultCandidateTextColor;
+    COLORREF backColor_ = kDefaultCandidateBackColor;
     int dpi_ = 96;
 
     int Scale(int value) const noexcept { return MulDiv(value, dpi_, 96); }
@@ -188,6 +193,8 @@ private:
     bool fullWidthPunctuation_ = true;
     std::wstring candidateFontFamily_ = kDefaultCandidateFontFace;
     int candidateFontSizeTenths_ = kDefaultCandidateFontSizeTenths;
+    COLORREF candidateTextColor_ = kDefaultCandidateTextColor;
+    COLORREF candidateBackColor_ = kDefaultCandidateBackColor;
     bool capsLockEnglish_ = false;
     InputMode modeBeforeCapsLock_ = InputMode::Chinese;
     bool shiftPressed_ = false;
@@ -226,6 +233,7 @@ private:
     void ApplyVertical(bool vertical);
     void ApplyFullWidthPunctuation(bool fullWidth);
     void ApplyCandidateFont(const std::wstring& family, int sizeTenths);
+    void ApplyCandidateColors(COLORREF textColor, COLORREF backColor);
     void OpenSettingsDialog();
     static INT_PTR CALLBACK SettingsDialogProc(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam);
     void SetKeyboardOpenState();

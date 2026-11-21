@@ -3,7 +3,7 @@
 
 #pragma code_page(65001)
 
-IDD_SETTINGS DIALOGEX 0, 0, 300, 324
+IDD_SETTINGS DIALOGEX 0, 0, 300, 386
 STYLE DS_SETFONT | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "炳哥输入设置"
 FONT 10, "Microsoft YaHei UI"
@@ -24,12 +24,18 @@ BEGIN
     LTEXT           "Microsoft YaHei UI\n13.5 磅", IDC_CANDIDATE_FONT_VALUE, 20, 178, 170, 32
     PUSHBUTTON      "选择字体…", IDC_CHOOSE_CANDIDATE_FONT, 200, 187, 80, 18, WS_TABSTOP
 
-    GROUPBOX        "关于", -1, 10, 230, 280, 60
-    LTEXT           "产品：炳哥输入", -1, 20, 245, 260, 10
-    LTEXT           "版本：无法读取", IDC_ABOUT_VERSION, 20, 259, 260, 10
-    LTEXT           "当前 DLL：无法读取", IDC_ABOUT_DLL, 20, 273, 260, 10
+    GROUPBOX        "候选窗颜色", -1, 10, 230, 280, 56
+    CONTROL         "", IDC_CANDIDATE_TEXT_COLOR_VALUE, "Static", SS_OWNERDRAW, 20, 246, 80, 12
+    PUSHBUTTON      "文字颜色…", IDC_CANDIDATE_TEXT_COLOR, 110, 242, 80, 18, WS_TABSTOP
+    CONTROL         "", IDC_CANDIDATE_BACK_COLOR_VALUE, "Static", SS_OWNERDRAW, 200, 246, 80, 12
+    PUSHBUTTON      "背景颜色…", IDC_CANDIDATE_BACK_COLOR, 210, 242, 70, 18, WS_TABSTOP
 
-    DEFPUSHBUTTON   "关闭", IDOK, 220, 298, 70, 18
+    GROUPBOX        "关于", -1, 10, 292, 280, 60
+    LTEXT           "产品：炳哥输入", -1, 20, 307, 260, 10
+    LTEXT           "版本：无法读取", IDC_ABOUT_VERSION, 20, 321, 260, 10
+    LTEXT           "当前 DLL：无法读取", IDC_ABOUT_DLL, 20, 335, 260, 10
+
+    DEFPUSHBUTTON   "关闭", IDOK, 220, 360, 70, 18
 END
 
 VS_VERSION_INFO VERSIONINFO
